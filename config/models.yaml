@@ -1,0 +1,8 @@
+intake_agent:     qwen-local
+triage_agent:     qwen-local
+context_agent:    qwen-local
+architect_agent:  openrouter/anthropic/claude-sonnet-4-20250514
+reviewer_high:    openrouter/anthropic/claude-sonnet-4-20250514
+reviewer_medium:  openrouter/openai/gpt-4o-mini
+reviewer_low:     qwen-local
+docs_agent:       qwen-local

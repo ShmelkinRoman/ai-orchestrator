@@ -1,0 +1,55 @@
+import logging
+from pathlib import Path
+from agents.llm import complete
+from config.settings import MODELS
+
+logger = logging.getLogger(__name__)
+
+_PROMPT = (Path(__file__).parent.parent / "prompts/architect.md").read_text()
+
+
+def run(intake_result: dict, triage_result: dict, context: dict) -> str:
+    model = MODELS["architect_agent"]
+    snippets = "\n\n".join(
+        f"### {fp}\n```\n{code}\n```"
+        for fp, code in context.get("file_snippets", {}).items()
+    )
+    user_content = f"""
+User story: {intake_result.get('user_story')}
+
+Acceptance criteria:
+{chr(10).join('- ' + c for c in intake_result.get('acceptance_criteria', []))}
+
+Risk: {triage_result.get('risk')}
+
+AGENTS.md:
+{context.get('agents_md') or '(not found)'}
+
+Relevant files: {', '.join(context.get('relevant_files', [])) or 'none'}
+
+{snippets}
+"""
+    logger.info("Architect agent running with model %s", model)
+    spec = complete(
+        model,
+        [{"role": "system", "content": _PROMPT}, {"role": "user", "content": user_content.strip()}],
+        temperature=0.2,
+        max_tokens=4096,
+    )
+    logger.info("Architect spec generated (%d chars)", len(spec))
+    return spec
+
+
+def extract_qwen_prompt(spec: str) -> str:
+    lines = spec.splitlines()
+    capturing = False
+    result_lines = []
+    for line in lines:
+        if "9." in line and "Qwen prompt" in line:
+            capturing = True
+            continue
+        if capturing:
+            if line.strip().startswith("10."):
+                break
+            result_lines.append(line)
+    return "\n".join(result_lines).strip()

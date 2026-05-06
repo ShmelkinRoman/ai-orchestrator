@@ -1,0 +1,21 @@
+model_list:
+  - model_name: qwen-local
+    litellm_params:
+      model: openai/qwen
+      api_base: http://100.110.246.46/v1
+      api_key: none
+
+  - model_name: claude-sonnet
+    litellm_params:
+      model: openrouter/anthropic/claude-sonnet-4-20250514
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  - model_name: claude-haiku
+    litellm_params:
+      model: openrouter/anthropic/claude-3-5-haiku-20241022
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+
+general_settings:
+  master_key: "sk-local-master-key"
