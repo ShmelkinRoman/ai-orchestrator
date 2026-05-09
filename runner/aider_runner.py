@@ -18,6 +18,7 @@ def run(repo_path: str, prompt: str, allowed_files: list[str] | None = None) -> 
         "--openai-api-key", "none",
         "--no-auto-commits",
         "--yes",
+        "--no-verify-ssl",
         "--message", prompt,
     ]
     if allowed_files:
