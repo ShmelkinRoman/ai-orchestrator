@@ -19,6 +19,7 @@ def run(repo_path: str, prompt: str, allowed_files: list[str] | None = None) -> 
         "--no-auto-commits",
         "--yes",
         "--no-verify-ssl",
+        "--no-show-model-warnings",
         "--message", prompt,
     ]
     if allowed_files:
