@@ -25,8 +25,9 @@ def _normalize_proxy(proxy: str | None) -> str | None:
 def _make_app() -> Application:
     builder = Application.builder().token(TELEGRAM_BOT_TOKEN)
     proxy = _normalize_proxy(TELEGRAM_PROXY)
-    if proxy:
-        builder = builder.request(HTTPXRequest(proxy=proxy))
+    # Large pool: poller + pipeline sends run concurrently, default pool (1-2) causes PoolTimeout
+    request = HTTPXRequest(connection_pool_size=16, proxy=proxy)
+    builder = builder.request(request)
     return builder.build()
 
 
