@@ -5,7 +5,7 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
-from config.settings import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_PROXY
+from config.settings import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_PROXY, GITHUB_REPO
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +37,13 @@ async def send_message(text: str):
     await _app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text, parse_mode="HTML")
 
 
+def _issue_link(num: int, title: str) -> str:
+    url = f"https://github.com/{GITHUB_REPO}/issues/{num}"
+    return f'<a href="{url}">#{num} {_safe_html(title)}</a>'
+
+
 async def send_task_started(num: int, title: str):
-    await send_message(f"<b>#{num}</b> {_safe_html(title)} — начато")
+    await send_message(f"{_issue_link(num, title)} — начато")
 
 
 async def send_task_summary(
@@ -85,7 +90,7 @@ async def send_task_summary(
     error_block = f"\n\nПроблема:\n<code>{_safe_html(error[:400])}</code>" if error else ""
 
     text = (
-        f"{icon} <b>#{num} {_safe_html(title)}</b> — {status}\n"
+        f"{icon} <b>{_issue_link(num, title)}</b> — {status}\n"
         f"Pipeline: Spec → Code → Tests → Review → Merge\n"
         f"{error_block}\n"
         f"\nРезультат:\n{chr(10).join(result_lines)}\n"
@@ -116,7 +121,7 @@ async def send_approval_request(
 
     review_icon = "✅" if review_verdict == "APPROVE" else "⚠️"
     msg_text = (
-        f"<b>#{issue_id} {_safe_html(title)}</b>\n"
+        f"<b>{_issue_link(issue_id, title)}</b>\n"
         f"Risk: {risk} | {files_count} files\n"
         f"Tests: passed | Review: {review_icon} {review_verdict}\n\n"
         f'<a href="{pr_url}">Открыть PR</a>'
@@ -148,7 +153,7 @@ async def send_spec_approval_request(
 
     summary = _extract_spec_summary(spec)
     msg_text = (
-        f"<b>#{issue_id} {_safe_html(title)}</b>\n"
+        f"<b>{_issue_link(issue_id, title)}</b>\n"
         f"Risk: {risk}\n\n"
         f"{_safe_html(summary)}"
     )
