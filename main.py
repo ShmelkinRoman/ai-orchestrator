@@ -29,12 +29,20 @@ CLONE_BASE = Path(tempfile.gettempdir()) / "ai-orch-repos"
 
 
 def _clone_repo(issue_number: int) -> Path:
+    import shutil
     CLONE_BASE.mkdir(parents=True, exist_ok=True)
     target = CLONE_BASE / f"repo-{issue_number}"
-    if target.exists():
-        subprocess.run(["git", "pull"], cwd=str(target), check=True)
-        return target
     url = f"https://{GITHUB_TOKEN}@github.com/{GITHUB_REPO}.git"
+    if target.exists():
+        try:
+            subprocess.run(["git", "checkout", "main"], cwd=str(target),
+                           check=True, capture_output=True)
+            subprocess.run(["git", "pull", "origin", "main"], cwd=str(target),
+                           check=True, capture_output=True)
+            return target
+        except subprocess.CalledProcessError:
+            logger.warning("repo-%d: stale clone, re-cloning", issue_number)
+            shutil.rmtree(target)
     subprocess.run(["git", "clone", url, str(target)], check=True)
     return target
 
