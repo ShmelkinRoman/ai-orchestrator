@@ -9,9 +9,7 @@ from config.settings import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_PROXY
 
 logger = logging.getLogger(__name__)
 
-# approval_queue: receives (prefix, action) tuples from callback handler
 _approval_queues: dict[str, asyncio.Queue] = {}
-
 _app: Application | None = None
 _active_tasks: dict[int, dict] = {}
 
@@ -25,7 +23,7 @@ def _normalize_proxy(proxy: str | None) -> str | None:
 def _make_app() -> Application:
     builder = Application.builder().token(TELEGRAM_BOT_TOKEN)
     proxy = _normalize_proxy(TELEGRAM_PROXY)
-    # Large pool: poller + pipeline sends run concurrently, default pool (1-2) causes PoolTimeout
+    # Large pool: poller + pipeline sends run concurrently, default pool causes PoolTimeout
     request = HTTPXRequest(connection_pool_size=16, proxy=proxy)
     builder = builder.request(request)
     return builder.build()
@@ -39,22 +37,89 @@ async def send_message(text: str):
     await _app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text, parse_mode="HTML")
 
 
-async def send_approval_request(text: str, pr_url: str, issue_id: int) -> str:
-    """Sends Merge/Reject/Rework buttons. Returns 'merge'|'reject'|'rework'."""
+async def send_task_started(num: int, title: str):
+    await send_message(f"<b>#{num}</b> {_safe_html(title)} — начато")
+
+
+async def send_task_summary(
+    num: int,
+    title: str,
+    stages: dict[str, str],
+    cost_report: dict,
+    error: str | None = None,
+):
+    if error:
+        icon = "🔴"
+        status = "остановлено"
+    elif stages.get("merge") in ("rejected", "rework"):
+        icon = "🟡"
+        status = stages["merge"]
+    else:
+        icon = "✅"
+        status = "завершено"
+
+    stage_order = ["spec", "code", "tests", "review", "merge", "docs"]
+    result_lines = [
+        f"  {k.capitalize()}: {stages[k]}"
+        for k in stage_order if k in stages
+    ]
+
+    actual = cost_report.get("actual_usd", 0)
+    sonnet = cost_report.get("sonnet_equivalent_usd", 0)
+    saved = cost_report.get("saved_usd", 0)
+
+    model_agg: dict[str, dict] = {}
+    for row in cost_report.get("rows", []):
+        m = row["model"]
+        if m not in model_agg:
+            model_agg[m] = {"cost": 0.0, "tokens": 0, "calls": 0}
+        model_agg[m]["cost"] += row["cost_usd"]
+        model_agg[m]["tokens"] += row["input_tokens"] + row["output_tokens"]
+        model_agg[m]["calls"] += 1
+
+    model_lines = "\n".join(
+        f"  {m.split('/')[-1]}: {v['calls']} calls, {v['tokens']}tok, ${v['cost']:.4f}"
+        for m, v in model_agg.items()
+    )
+
+    error_block = f"\n\nПроблема:\n<code>{_safe_html(error[:400])}</code>" if error else ""
+
+    text = (
+        f"{icon} <b>#{num} {_safe_html(title)}</b> — {status}\n"
+        f"Pipeline: Spec → Code → Tests → Review → Merge\n"
+        f"{error_block}\n"
+        f"\nРезультат:\n{chr(10).join(result_lines)}\n"
+        f"\nСтоимость:\n"
+        f"  Факт: ${actual:.4f}\n"
+        f"  Sonnet-only: ${sonnet:.4f}\n"
+        f"  Экономия: ${saved:.4f}\n"
+        f"\nМодели:\n{model_lines}"
+    )
+    await send_message(text)
+    logger.info("Task summary sent for #%d: actual=$%.5f saved=$%.5f", num, actual, saved)
+
+
+async def send_approval_request(
+    title: str, risk: str, files_count: int, review_verdict: str,
+    pr_url: str, issue_id: int
+) -> str:
+    """Sends PR approval card. Returns 'merge'|'reject'|'rework'."""
     prefix = f"approval_{issue_id}"
     q: asyncio.Queue = asyncio.Queue(maxsize=1)
     _approval_queues[prefix] = q
 
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Merge",        callback_data=f"{prefix}_merge"),
-        InlineKeyboardButton("❌ Отклонить",    callback_data=f"{prefix}_reject"),
-        InlineKeyboardButton("🔄 Доработать",  callback_data=f"{prefix}_rework"),
+        InlineKeyboardButton("Merge",      callback_data=f"{prefix}_merge"),
+        InlineKeyboardButton("Отклонить", callback_data=f"{prefix}_reject"),
+        InlineKeyboardButton("Доработать", callback_data=f"{prefix}_rework"),
     ]])
 
+    review_icon = "✅" if review_verdict == "APPROVE" else "⚠️"
     msg_text = (
-        f"{_safe_html(text)}\n\n"
-        f'<a href="{pr_url}">Открыть PR</a>\n\n'
-        f"Жду решения:"
+        f"<b>#{issue_id} {_safe_html(title)}</b>\n"
+        f"Risk: {risk} | {files_count} files\n"
+        f"Tests: passed | Review: {review_icon} {review_verdict}\n\n"
+        f'<a href="{pr_url}">Открыть PR</a>'
     )
     await _app.bot.send_message(
         chat_id=TELEGRAM_CHAT_ID,
@@ -74,30 +139,26 @@ async def send_approval_request(text: str, pr_url: str, issue_id: int) -> str:
 async def send_spec_approval_request(
     title: str, risk: str, spec: str, issue_id: int
 ) -> tuple[str, str]:
-    """Sends spec plan with [✅ Принять] [✏️ Уточнить] [❌ Отменить] buttons.
+    """Sends spec plan with approve/clarify/cancel buttons.
     Returns (action, clarification_text).
-    action: 'approve' | 'clarify' | 'cancel'
     """
     prefix = f"spec_{issue_id}"
     q: asyncio.Queue = asyncio.Queue(maxsize=1)
     _approval_queues[prefix] = q
 
-    # Extract key sections from spec for summary
     summary = _extract_spec_summary(spec)
-
     msg_text = (
-        f"📋 <b>План готов: {_safe_html(title)}</b>\n"
+        f"<b>#{issue_id} {_safe_html(title)}</b>\n"
         f"Risk: {risk}\n\n"
-        f"{_safe_html(summary)}\n\n"
-        f"Подтвердите план:"
+        f"{_safe_html(summary)}"
     )
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Принять план",   callback_data=f"{prefix}_approve"),
-        InlineKeyboardButton("✏️ Уточнить",       callback_data=f"{prefix}_clarify"),
-        InlineKeyboardButton("❌ Отменить задачу", callback_data=f"{prefix}_cancel"),
+        InlineKeyboardButton("Принять",  callback_data=f"{prefix}_approve"),
+        InlineKeyboardButton("Уточнить", callback_data=f"{prefix}_clarify"),
+        InlineKeyboardButton("Отменить", callback_data=f"{prefix}_cancel"),
     ]])
 
-    sent = await _app.bot.send_message(
+    await _app.bot.send_message(
         chat_id=TELEGRAM_CHAT_ID,
         text=msg_text,
         reply_markup=keyboard,
@@ -111,13 +172,11 @@ async def send_spec_approval_request(
 
     clarification = ""
     if action == "clarify":
-        # ask for clarification text
         await _app.bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
-            text="✏️ Опишите что изменить в плане:",
+            text="Опишите что изменить в плане:",
             parse_mode=None,
         )
-        # wait for a text message reply
         text_prefix = f"text_{issue_id}"
         tq: asyncio.Queue = asyncio.Queue(maxsize=1)
         _approval_queues[text_prefix] = tq
@@ -128,7 +187,6 @@ async def send_spec_approval_request(
 
 
 def _extract_spec_summary(spec: str) -> str:
-    """Pulls Summary, allowed/forbidden files and tests from the spec."""
     lines = spec.splitlines()
     sections: list[str] = []
     current: list[str] = []
@@ -168,7 +226,7 @@ async def _callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("Callback received: data=%s", query.data)
     try:
         await query.answer()
-        data = query.data  # e.g. "approval_1_merge"
+        data = query.data
         parts = data.rsplit("_", 1)
         if len(parts) != 2:
             logger.warning("Unexpected callback_data format: %s", data)
@@ -182,9 +240,17 @@ async def _callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.info("Put action '%s' into queue for %s", action, prefix)
             else:
                 logger.info("Queue already has a result, ignoring duplicate press")
+            _action_labels = {
+                "merge": "Merge",
+                "reject": "Отклонено",
+                "rework": "Доработать",
+                "approve": "Принято",
+                "clarify": "Уточнить",
+                "cancel": "Отменено",
+            }
             try:
                 await query.edit_message_text(
-                    text=f"✅ Выбрано: {action}",
+                    text=f"— {_action_labels.get(action, action)}",
                     parse_mode=None,
                 )
             except Exception as e:
@@ -196,16 +262,14 @@ async def _callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles plain text replies (used for clarification after ✏️ Уточнить)."""
     if not update.message or not update.message.text:
         return
     text = update.message.text.strip()
-    # find any waiting text queue
     for key, q in list(_approval_queues.items()):
         if key.startswith("text_") and q.empty():
             await q.put(text)
             logger.info("Clarification text received for %s", key)
-            await update.message.reply_text("✅ Принято, передаю архитектору...")
+            await update.message.reply_text("Принято, передаю архитектору...")
             return
 
 
@@ -215,7 +279,7 @@ async def _status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     lines = ["<b>Активные задачи:</b>"]
     for num, info in _active_tasks.items():
-        lines.append(f"• #{num} {info['title']} → <i>{info['status']}</i>")
+        lines.append(f"  #{num} {info['title']} — {info['status']}")
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 

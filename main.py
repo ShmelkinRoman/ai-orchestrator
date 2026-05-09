@@ -70,16 +70,15 @@ async def process_issue(issue) -> None:
 
     logger.info("=== Processing issue #%d: %s ===", num, title_raw)
     llm.reset_run_costs()
+    stages: dict[str, str] = {}
 
     # --- Step 1: Intake ---
+    await tg.send_task_started(num, title_raw)
     tg.update_task_status(num, title_raw, "Intake")
-    await tg.send_message(f"📋 Взято в работу: {title_raw} (#{num})")
-
     project.move_issue(num, node_id, "Triage")
 
     intake = intake_agent.run(f"Title: {title_raw}\n\n{body}")
     title = intake.get("title", title_raw)
-    tg.update_task_status(num, title, "Intake done")
 
     # --- Step 2: Triage ---
     triage = triage_agent.run(intake)
@@ -93,8 +92,10 @@ async def process_issue(issue) -> None:
         project.move_issue(num, node_id, "Needs Clarification")
         questions = "\n".join(f"- {q}" for q in triage["clarification_questions"])
         gh.add_comment(issue, f"❓ **Нужны уточнения:**\n{questions}")
-        await tg.send_message(f"❓ Нужны уточнения: {title} (#{num})\n{questions}")
         tg.update_task_status(num, title, "Needs Clarification")
+        stages["spec"] = "needs clarification"
+        await tg.send_task_summary(num, title, stages, llm.get_run_cost_report(),
+                                   error=f"Нужны уточнения:\n{questions}")
         return
 
     project.move_issue(num, node_id, "Technical Spec")
@@ -113,18 +114,21 @@ async def process_issue(issue) -> None:
     project.move_issue(num, node_id, "Awaiting Spec Approval")
     tg.update_task_status(num, title, "Awaiting Spec Approval")
 
+    spec_clarified = False
     for _attempt in range(2):
         spec_action, clarification = await tg.send_spec_approval_request(title, risk, spec, num)
         if spec_action == "approve":
+            stages["spec"] = "approved" if not spec_clarified else "clarified→approved"
             break
         if spec_action == "cancel":
             project.move_issue(num, node_id, "Backlog")
             gh.remove_label(issue, "ai-in-progress")
             gh.add_label(issue, "ai-ready")
-            await tg.send_message(f"❌ Задача отменена: {title} (#{num})")
             tg.update_task_status(num, title, "Cancelled")
+            stages["spec"] = "cancelled"
+            await tg.send_task_summary(num, title, stages, llm.get_run_cost_report())
             return
-        # clarify: re-run architect with the clarification appended
+        spec_clarified = True
         clarified_intake = {
             **intake,
             "user_story": intake.get("user_story", "") + f"\n\nClarification: {clarification}",
@@ -134,7 +138,6 @@ async def process_issue(issue) -> None:
         gh.add_comment(issue, f"## 🏗️ Обновлённый Technical Spec\n\n{spec}")
 
     project.move_issue(num, node_id, "Ready for Dev")
-    await tg.send_message(f"🏗️ Техспек одобрен: {title} (#{num})")
 
     # --- Step 5: Aider + Qwen ---
     branch = f"ai/{num}-{_slugify(title)}"
@@ -149,7 +152,6 @@ async def process_issue(issue) -> None:
 
     project.move_issue(num, node_id, "In Development")
     tg.update_task_status(num, title, "In Development")
-    await tg.send_message(f"💻 Qwen пишет код: {title} (#{num})")
 
     aider_result = aider.run(str(repo_path), qwen_prompt or spec)
 
@@ -158,29 +160,30 @@ async def process_issue(issue) -> None:
 
     diff = aider_result["diff"]
     changed_files = aider_result["changed_files"]
+    stages["code"] = f"Qwen local ({len(changed_files)} files)"
 
     # --- Step 6: Tests ---
     project.move_issue(num, node_id, "Tests Running")
     tg.update_task_status(num, title, "Tests Running")
 
     test_result = aider.run_tests(str(repo_path))
-    attempts = 0
-    while not test_result["passed"] and attempts < 2:
-        attempts += 1
+    fix_attempts = 0
+    while not test_result["passed"] and fix_attempts < 2:
+        fix_attempts += 1
         fix_prompt = f"Fix test failures:\n{test_result['output'][:2000]}"
         aider.run(str(repo_path), fix_prompt, changed_files)
-        aider.commit_changes(str(repo_path), f"fix: test fixes attempt {attempts} #{num}")
+        aider.commit_changes(str(repo_path), f"fix: test fixes attempt {fix_attempts} #{num}")
         test_result = aider.run_tests(str(repo_path))
 
     if not test_result["passed"]:
         project.move_issue(num, node_id, "Needs Clarification")
-        await tg.send_message(
-            f"❌ Тесты упали: {title} (#{num})\n\n{test_result['output'][:500]}"
-        )
         tg.update_task_status(num, title, "Tests Failed")
+        stages["tests"] = "failed"
+        await tg.send_task_summary(num, title, stages, llm.get_run_cost_report(),
+                                   error=test_result["output"][:500])
         return
 
-    await tg.send_message(f"✅ Тесты прошли: {title} (#{num})")
+    stages["tests"] = "passed" if fix_attempts == 0 else f"passed ({fix_attempts} fix)"
 
     # --- Step 7: Review ---
     review = reviewer_agent.run(
@@ -210,10 +213,8 @@ async def process_issue(issue) -> None:
             test_output=test_result["output"],
         )
 
+    stages["review"] = review["verdict"]
     project.move_issue(num, node_id, "AI Review")
-    await tg.send_message(
-        f"👀 AI Review: {review['verdict']} — {title} (#{num})"
-    )
 
     # --- Step 8: PR ---
     criteria_list = "\n".join(
@@ -238,7 +239,6 @@ async def process_issue(issue) -> None:
 
 Closes #{num}
 """
-    # push branch BEFORE creating PR (PR needs commits to exist on remote)
     remote_url = f"https://{GITHUB_TOKEN}@github.com/{GITHUB_REPO}.git"
     subprocess.run(
         ["git", "push", "-f", remote_url, f"HEAD:{branch}"],
@@ -255,21 +255,18 @@ Closes #{num}
     project.move_issue(num, node_id, "Human Approval")
     tg.update_task_status(num, title, "Human Approval")
 
-    approval_text = (
-        f"🔀 PR готов: {title}\n"
-        f"Risk: {risk} | Files: {len(changed_files)} | Tests: ✅ | AI Review: ✅ {review['verdict']}"
-    )
-
     # --- Step 9: Human Approval ---
-    decision = await tg.send_approval_request(approval_text, pr_url, num)
+    decision = await tg.send_approval_request(
+        title, risk, len(changed_files), review["verdict"], pr_url, num
+    )
 
     if decision == "merge":
         gh.merge_pull_request(pr.number)
         project.move_issue(num, node_id, "Released")
         gh.remove_label(issue, "ai-in-progress")
         gh.add_label(issue, "ai-done")
-        await tg.send_message(f"🚀 Смержено: {title} (#{num})")
         tg.update_task_status(num, title, "Released")
+        stages["merge"] = "merged"
 
         # --- Step 10: Docs ---
         subprocess.run(["git", "fetch", remote_url], cwd=str(repo_path))
@@ -280,15 +277,16 @@ Closes #{num}
         )
         if reset_r.returncode != 0:
             logger.warning("docs step: git reset --hard FETCH_HEAD failed, skipping docs push")
+            stages["docs"] = "skipped"
         else:
             docs_agent.run(str(repo_path), changed_files, spec, diff)
             try:
                 aider.commit_changes(str(repo_path), f"docs: update after #{num}")
                 subprocess.run(["git", "push", remote_url, "main"], cwd=str(repo_path), check=True)
+                stages["docs"] = "updated"
             except subprocess.CalledProcessError:
-                pass  # skip if nothing to commit
+                stages["docs"] = "skipped"
         project.move_issue(num, node_id, "Docs Updated")
-        await tg.send_message(f"📝 Документация обновлена: {title} (#{num})")
         tg.update_task_status(num, title, "Docs Updated")
 
     elif decision == "reject":
@@ -296,48 +294,15 @@ Closes #{num}
         project.move_issue(num, node_id, "Backlog")
         gh.remove_label(issue, "ai-in-progress")
         gh.add_label(issue, "ai-ready")
-        await tg.send_message(f"🚫 Отклонено: {title} (#{num})")
         tg.update_task_status(num, title, "Rejected")
+        stages["merge"] = "rejected"
 
     else:  # rework
         project.move_issue(num, node_id, "Needs Clarification")
-        await tg.send_message(f"🔄 Отправлено на доработку: {title} (#{num})")
         tg.update_task_status(num, title, "Needs Clarification")
+        stages["merge"] = "rework"
 
-    _send_cost_report(num, title)
-
-
-def _send_cost_report(num: int, title: str) -> None:
-    report = llm.get_run_cost_report()
-    actual = report["actual_usd"]
-    sonnet = report["sonnet_equivalent_usd"]
-    saved = report["saved_usd"]
-
-    rows_text = ""
-    for r in report["rows"]:
-        rows_text += (
-            f"  {r['agent']}: {r['input_tokens']}+{r['output_tokens']} tok"
-            f" ${r['cost_usd']:.5f}\n"
-        )
-
-    msg = (
-        f"💰 Стоимость задачи #{num} {title}\n"
-        f"Фактически: ${actual:.4f}\n"
-        f"Если бы весь Sonnet 4.6: ${sonnet:.4f}\n"
-        f"Сэкономлено: ${saved:.4f}\n\n"
-        f"{rows_text}"
-    )
-    logger.info("Cost report for #%d: actual=$%.5f sonnet_eq=$%.5f saved=$%.5f",
-                num, actual, sonnet, saved)
-    import asyncio as _asyncio
-    try:
-        loop = _asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(tg.send_message(msg))
-        else:
-            loop.run_until_complete(tg.send_message(msg))
-    except Exception:
-        pass
+    await tg.send_task_summary(num, title, stages, llm.get_run_cost_report())
 
 
 async def main_loop():
