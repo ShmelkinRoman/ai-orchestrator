@@ -280,6 +280,49 @@ async def _message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
 
+async def send_model_health_alert(status: str, details: str) -> str:
+    """Sends model health alert with action buttons.
+    status: 'unreachable' | 'wrong_model'
+    Returns: 'retry' | 'continue' | 'stop'
+    """
+    prefix = "model_health"
+    q: asyncio.Queue = asyncio.Queue(maxsize=1)
+    _approval_queues[prefix] = q
+
+    if status == "unreachable":
+        icon = "🔴"
+        msg = f"{icon} <b>Qwen недоступен</b>\n<code>{_safe_html(details)}</code>"
+        buttons = [
+            InlineKeyboardButton("🔄 Повторить", callback_data=f"{prefix}_retry"),
+            InlineKeyboardButton("▶️ Продолжить", callback_data=f"{prefix}_continue"),
+            InlineKeyboardButton("⏹ Остановить", callback_data=f"{prefix}_stop"),
+        ]
+        msg += "\n\n▶️ Продолжить = Qwen-вызовы пойдут через Haiku fallback"
+    else:
+        icon = "🟡"
+        msg = (
+            f"{icon} <b>Не та модель в vLLM</b>\n{_safe_html(details)}\n\n"
+            f"Чтобы исправить — запустите на машине 5090:\n"
+            f"<code>bash ~/ai-orchestrator/infra/qwen-server.sh</code>"
+        )
+        buttons = [
+            InlineKeyboardButton("▶️ Продолжить", callback_data=f"{prefix}_continue"),
+            InlineKeyboardButton("⏹ Остановить", callback_data=f"{prefix}_stop"),
+        ]
+
+    await _app.bot.send_message(
+        chat_id=TELEGRAM_CHAT_ID,
+        text=msg,
+        reply_markup=InlineKeyboardMarkup([buttons]),
+        parse_mode="HTML",
+    )
+
+    action = await asyncio.wait_for(q.get(), timeout=86400)
+    _approval_queues.pop(prefix, None)
+    logger.info("Model health action chosen: %s", action)
+    return action
+
+
 async def _status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _active_tasks:
         await update.message.reply_text("Нет активных задач.")

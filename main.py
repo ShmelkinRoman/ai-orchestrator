@@ -18,7 +18,10 @@ import gh_client.client as gh
 import gh_client.project as project
 import notifications.telegram as tg
 import runner.aider_runner as aider
-from config.settings import GITHUB_REPO, GITHUB_TOKEN
+import httpx
+from config.settings import GITHUB_REPO, GITHUB_TOKEN, QWEN_API_BASE
+
+EXPECTED_MODEL_KEYWORDS = ("qwen2.5", "coder", "32")  # все должны присутствовать в id модели (lower)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -305,9 +308,45 @@ Closes #{num}
     await tg.send_task_summary(num, title, stages, llm.get_run_cost_report())
 
 
+def _probe_qwen() -> tuple[str, str]:
+    """Returns (status, details). status: 'ok' | 'unreachable' | 'wrong_model'."""
+    try:
+        resp = httpx.get(f"{QWEN_API_BASE}/models", verify=False, timeout=10)
+        resp.raise_for_status()
+        models = [m["id"] for m in resp.json().get("data", [])]
+        for model_id in models:
+            mid = model_id.lower()
+            if all(kw in mid for kw in EXPECTED_MODEL_KEYWORDS):
+                return "ok", model_id
+        loaded = ", ".join(models) or "нет моделей"
+        return "wrong_model", f"Ожидается Qwen2.5-Coder-32B, загружено: {loaded}"
+    except Exception as e:
+        return "unreachable", str(e)[:200]
+
+
+async def _ensure_qwen_ready() -> bool:
+    """Checks Qwen health; asks operator via Telegram on problems. Returns False = stop."""
+    while True:
+        status, details = _probe_qwen()
+        if status == "ok":
+            logger.info("Qwen OK: %s", details)
+            return True
+        logger.warning("Qwen health: %s — %s", status, details)
+        action = await tg.send_model_health_alert(status, details)
+        if action == "continue":
+            return True
+        if action == "stop":
+            return False
+        # retry → loop
+
+
 async def main_loop():
     gh.ensure_labels()
     await tg.start_polling()
+
+    if not await _ensure_qwen_ready():
+        await tg.send_message("Оркестратор остановлен по решению оператора.")
+        return
 
     try:
         issues = gh.get_ai_ready_issues()
