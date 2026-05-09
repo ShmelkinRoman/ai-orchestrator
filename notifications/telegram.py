@@ -248,13 +248,15 @@ async def _callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "clarify": "Уточнить",
                 "cancel": "Отменено",
             }
+            label = _action_labels.get(action, action)
             try:
-                await query.edit_message_text(
-                    text=f"— {_action_labels.get(action, action)}",
-                    parse_mode=None,
-                )
+                await query.edit_message_text(text=f"— {label}", parse_mode=None)
             except Exception as e:
-                logger.debug("edit_message_text: %s", e)
+                logger.warning("edit_message_text failed (%s), removing keyboard only", e)
+                try:
+                    await query.edit_message_reply_markup(reply_markup=None)
+                except Exception as e2:
+                    logger.warning("edit_message_reply_markup also failed: %s", e2)
         else:
             logger.warning("No queue for prefix=%s (already handled or old message)", prefix)
     except Exception as e:
