@@ -58,6 +58,9 @@ def complete(alias: str, messages: list[dict], temperature: float = 0.1,
         kwargs["api_base"] = api_base
     if api_key:
         kwargs["api_key"] = api_key
+    if api_base and api_base.startswith("https://100."):
+        # Self-signed cert on local Tailscale host — skip verification
+        kwargs["ssl_verify"] = False
 
     last_exc = None
     for attempt in range(1, retries + 1):
