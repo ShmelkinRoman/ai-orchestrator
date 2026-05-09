@@ -272,7 +272,7 @@ Closes #{num}
         # --- Step 10: Docs ---
         subprocess.run(["git", "fetch", remote_url], cwd=str(repo_path))
         subprocess.run(["git", "checkout", "main"], cwd=str(repo_path), capture_output=True)
-        subprocess.run(["git", "pull", remote_url, "main"], cwd=str(repo_path))
+        subprocess.run(["git", "pull", "--rebase", remote_url, "main"], cwd=str(repo_path))
         docs_agent.run(str(repo_path), changed_files, spec, diff)
         try:
             aider.commit_changes(str(repo_path), f"docs: update after #{num}")
