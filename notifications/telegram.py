@@ -303,10 +303,13 @@ async def send_model_health_alert(status: str, details: str) -> str:
         msg = (
             f"{icon} <b>Не та модель в vLLM</b>\n{_safe_html(details)}\n\n"
             f"Чтобы исправить — запустите на машине 5090:\n"
-            f"<code>bash ~/ai-orchestrator/infra/qwen-server.sh</code>"
+            f"<code>bash ~/ai-orchestrator/infra/qwen-server.sh</code>\n\n"
+            f"▶️ С текущей = используется загруженная модель\n"
+            f"☁️ Через Haiku = все Qwen-вызовы идут в Claude Haiku"
         )
         buttons = [
-            InlineKeyboardButton("▶️ Продолжить", callback_data=f"{prefix}_continue"),
+            InlineKeyboardButton("▶️ С текущей моделью", callback_data=f"{prefix}_continue"),
+            InlineKeyboardButton("☁️ Через Haiku", callback_data=f"{prefix}_haiku"),
             InlineKeyboardButton("⏹ Остановить", callback_data=f"{prefix}_stop"),
         ]
 

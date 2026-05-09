@@ -335,6 +335,9 @@ async def _ensure_qwen_ready() -> bool:
         action = await tg.send_model_health_alert(status, details)
         if action == "continue":
             return True
+        if action == "haiku":
+            llm.set_force_haiku(True)
+            return True
         if action == "stop":
             return False
         # retry → loop

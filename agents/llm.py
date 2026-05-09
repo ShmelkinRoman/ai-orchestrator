@@ -54,10 +54,17 @@ _COST_PER_1M = {
 
 # Accumulated cost tracking for current pipeline run
 _run_costs: list[dict] = []
+_force_haiku: bool = False
 
 
 def reset_run_costs() -> None:
     _run_costs.clear()
+
+
+def set_force_haiku(enabled: bool) -> None:
+    global _force_haiku
+    _force_haiku = enabled
+    logger.info("Force-haiku mode: %s", enabled)
 
 
 def get_run_cost_report() -> dict:
@@ -103,6 +110,17 @@ def _is_qwen(alias: str) -> bool:
 
 def complete(alias: str, messages: list[dict], temperature: float = 0.1,
              max_tokens: int = 4096, retries: int = 3) -> str:
+    if _is_qwen(alias) and _force_haiku:
+        logger.info("Force-haiku active: routing '%s' → haiku fallback", alias)
+        fb_model, fb_base, fb_key = _QWEN_FALLBACK
+        resp = litellm.completion(
+            model=fb_model, messages=messages, temperature=temperature,
+            max_tokens=max_tokens, api_base=fb_base, api_key=fb_key,
+        )
+        u = resp.usage
+        _record_cost(f"{alias}(forced-haiku)", fb_model, u.prompt_tokens, u.completion_tokens)
+        return resp.choices[0].message.content.strip()
+
     model, api_base, api_key = _resolve(alias)
     kwargs = dict(model=model, messages=messages, temperature=temperature,
                   max_tokens=max_tokens)
