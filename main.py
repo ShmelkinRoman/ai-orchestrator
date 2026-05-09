@@ -274,13 +274,19 @@ Closes #{num}
         # --- Step 10: Docs ---
         subprocess.run(["git", "fetch", remote_url], cwd=str(repo_path))
         subprocess.run(["git", "checkout", "main"], cwd=str(repo_path), capture_output=True)
-        subprocess.run(["git", "pull", "--rebase", remote_url, "main"], cwd=str(repo_path))
-        docs_agent.run(str(repo_path), changed_files, spec, diff)
-        try:
-            aider.commit_changes(str(repo_path), f"docs: update after #{num}")
-            subprocess.run(["git", "push", remote_url, "main"], cwd=str(repo_path))
-        except subprocess.CalledProcessError:
-            pass  # skip if nothing to commit
+        reset_r = subprocess.run(
+            ["git", "reset", "--hard", "FETCH_HEAD"],
+            cwd=str(repo_path), capture_output=True,
+        )
+        if reset_r.returncode != 0:
+            logger.warning("docs step: git reset --hard FETCH_HEAD failed, skipping docs push")
+        else:
+            docs_agent.run(str(repo_path), changed_files, spec, diff)
+            try:
+                aider.commit_changes(str(repo_path), f"docs: update after #{num}")
+                subprocess.run(["git", "push", remote_url, "main"], cwd=str(repo_path), check=True)
+            except subprocess.CalledProcessError:
+                pass  # skip if nothing to commit
         project.move_issue(num, node_id, "Docs Updated")
         await tg.send_message(f"📝 Документация обновлена: {title} (#{num})")
         tg.update_task_status(num, title, "Docs Updated")
