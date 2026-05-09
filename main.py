@@ -21,7 +21,7 @@ import runner.aider_runner as aider
 import httpx
 from config.settings import GITHUB_REPO, GITHUB_TOKEN, QWEN_API_BASE
 
-EXPECTED_MODEL_KEYWORDS = ("qwen2.5", "coder", "32")  # все должны присутствовать в id модели (lower)
+QWEN_SERVED_NAME = "qwen"  # --served-model-name в vLLM / model-router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -314,12 +314,10 @@ def _probe_qwen() -> tuple[str, str]:
         resp = httpx.get(f"{QWEN_API_BASE}/models", verify=False, timeout=10)
         resp.raise_for_status()
         models = [m["id"] for m in resp.json().get("data", [])]
-        for model_id in models:
-            mid = model_id.lower()
-            if all(kw in mid for kw in EXPECTED_MODEL_KEYWORDS):
-                return "ok", model_id
+        if QWEN_SERVED_NAME in models:
+            return "ok", QWEN_SERVED_NAME
         loaded = ", ".join(models) or "нет моделей"
-        return "wrong_model", f"Ожидается Qwen2.5-Coder-32B, загружено: {loaded}"
+        return "wrong_model", f"Модель '{QWEN_SERVED_NAME}' не найдена. Доступны: {loaded}"
     except Exception as e:
         return "unreachable", str(e)[:200]
 
