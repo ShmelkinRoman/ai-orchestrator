@@ -110,6 +110,9 @@ def complete(alias: str, messages: list[dict], temperature: float = 0.1,
         kwargs["api_base"] = api_base
     if api_key:
         kwargs["api_key"] = api_key
+    if _is_qwen(alias):
+        kwargs["top_p"] = 0.8
+        kwargs["extra_body"] = {"repetition_penalty": 1.05}
 
     last_exc = None
     for attempt in range(1, retries + 1):
