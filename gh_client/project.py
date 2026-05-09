@@ -54,17 +54,19 @@ def _get_or_create_project() -> tuple[str, str, dict[str, str]]:
     """
     data = _gql(find_q, {"login": owner})
     projects = data["data"]["user"]["projectsV2"]["nodes"]
-    project = next((p for p in projects if p["title"] == "AI-SDLC"), None)
+    repo_name = GITHUB_REPO.split("/")[1]
+    project_title = f"AI-SDLC — {repo_name}"
+    project = next((p for p in projects if p["title"] == project_title), None)
 
     if not project:
-        project = _create_project(owner)
+        project = _create_project(owner, project_title)
 
     _project_id = project["id"]
     _field_id, _option_ids = _get_status_field(_project_id)
     return _project_id, _field_id, _option_ids
 
 
-def _create_project(owner_login: str) -> dict:
+def _create_project(owner_login: str, title: str) -> dict:
     owner_id = _get_owner_id(owner_login)
     q = """
     mutation($ownerId: ID!, $title: String!) {
@@ -73,10 +75,26 @@ def _create_project(owner_login: str) -> dict:
       }
     }
     """
-    result = _gql(q, {"ownerId": owner_id, "title": "AI-SDLC"})
+    result = _gql(q, {"ownerId": owner_id, "title": title})
     project = result["data"]["createProjectV2"]["projectV2"]
-    logger.info("Created project: %s", project["id"])
+    logger.info("Created project '%s': %s", title, project["id"])
+    _link_project_to_repo(project["id"])
     return project
+
+
+def _link_project_to_repo(project_id: str) -> None:
+    owner, repo_name = GITHUB_REPO.split("/")
+    q = """query($owner: String!, $name: String!) {
+      repository(owner: $owner, name: $name) { id }
+    }"""
+    repo_id = _gql(q, {"owner": owner, "name": repo_name})["data"]["repository"]["id"]
+    m = """mutation($projectId: ID!, $repositoryId: ID!) {
+      linkProjectV2ToRepository(input: {projectId: $projectId, repositoryId: $repositoryId}) {
+        repository { name }
+      }
+    }"""
+    _gql(m, {"projectId": project_id, "repositoryId": repo_id})
+    logger.info("Linked project to repo %s", GITHUB_REPO)
 
 
 def _get_status_field(project_id: str) -> tuple[str, dict[str, str]]:
