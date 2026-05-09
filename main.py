@@ -11,6 +11,7 @@ import agents.architect as architect_agent
 import agents.context as context_agent
 import agents.docs as docs_agent
 import agents.intake as intake_agent
+import agents.llm as llm
 import agents.reviewer as reviewer_agent
 import agents.triage as triage_agent
 import gh_client.client as gh
@@ -68,6 +69,7 @@ async def process_issue(issue) -> None:
     node_id = issue.raw_data.get("node_id", "")
 
     logger.info("=== Processing issue #%d: %s ===", num, title_raw)
+    llm.reset_run_costs()
 
     # --- Step 1: Intake ---
     tg.update_task_status(num, title_raw, "Intake")
@@ -295,6 +297,41 @@ Closes #{num}
         project.move_issue(num, node_id, "Needs Clarification")
         await tg.send_message(f"🔄 Отправлено на доработку: {title} (#{num})")
         tg.update_task_status(num, title, "Needs Clarification")
+
+    _send_cost_report(num, title)
+
+
+def _send_cost_report(num: int, title: str) -> None:
+    report = llm.get_run_cost_report()
+    actual = report["actual_usd"]
+    sonnet = report["sonnet_equivalent_usd"]
+    saved = report["saved_usd"]
+
+    rows_text = ""
+    for r in report["rows"]:
+        rows_text += (
+            f"  {r['agent']}: {r['input_tokens']}+{r['output_tokens']} tok"
+            f" ${r['cost_usd']:.5f}\n"
+        )
+
+    msg = (
+        f"💰 Стоимость задачи #{num} {title}\n"
+        f"Фактически: ${actual:.4f}\n"
+        f"Если бы весь Sonnet 4.6: ${sonnet:.4f}\n"
+        f"Сэкономлено: ${saved:.4f}\n\n"
+        f"{rows_text}"
+    )
+    logger.info("Cost report for #%d: actual=$%.5f sonnet_eq=$%.5f saved=$%.5f",
+                num, actual, sonnet, saved)
+    import asyncio as _asyncio
+    try:
+        loop = _asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(tg.send_message(msg))
+        else:
+            loop.run_until_complete(tg.send_message(msg))
+    except Exception:
+        pass
 
 
 async def main_loop():

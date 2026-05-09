@@ -42,6 +42,54 @@ _TRANSIENT_ERRORS = (
     litellm.Timeout,
 )
 
+# Cost per 1M tokens (input/output) in USD — for comparison reporting
+_COST_PER_1M = {
+    "openai/qwen":                             (0.0,   0.0),    # local, free
+    "openrouter/anthropic/claude-sonnet-4.6":  (3.0,   15.0),
+    "openrouter/anthropic/claude-haiku-4.5":   (0.80,  4.0),
+    "openrouter/openai/gpt-4o-mini":           (0.15,  0.60),
+    # hypothetical: what if Sonnet did this task instead
+    "__sonnet_substitute__":                   (3.0,   15.0),
+}
+
+# Accumulated cost tracking for current pipeline run
+_run_costs: list[dict] = []
+
+
+def reset_run_costs() -> None:
+    _run_costs.clear()
+
+
+def get_run_cost_report() -> dict:
+    """Returns actual cost breakdown and hypothetical all-Sonnet cost."""
+    actual = 0.0
+    sonnet_equivalent = 0.0
+    rows = []
+    for entry in _run_costs:
+        rows.append(entry)
+        actual += entry["cost_usd"]
+        # what would Sonnet 4.6 cost for same token counts?
+        in_p, out_p = _COST_PER_1M["__sonnet_substitute__"]
+        sonnet_equivalent += (entry["input_tokens"] * in_p + entry["output_tokens"] * out_p) / 1_000_000
+
+    return {
+        "rows": rows,
+        "actual_usd": round(actual, 5),
+        "sonnet_equivalent_usd": round(sonnet_equivalent, 5),
+        "saved_usd": round(sonnet_equivalent - actual, 5),
+    }
+
+
+def _record_cost(alias: str, model: str, input_tokens: int, output_tokens: int) -> float:
+    in_p, out_p = _COST_PER_1M.get(model, (0.0, 0.0))
+    cost = (input_tokens * in_p + output_tokens * out_p) / 1_000_000
+    _run_costs.append({
+        "agent": alias, "model": model,
+        "input_tokens": input_tokens, "output_tokens": output_tokens,
+        "cost_usd": round(cost, 6),
+    })
+    return cost
+
 
 def _resolve(alias: str) -> tuple[str, str | None, str | None]:
     if alias in _MODEL_MAP:
@@ -67,6 +115,10 @@ def complete(alias: str, messages: list[dict], temperature: float = 0.1,
     for attempt in range(1, retries + 1):
         try:
             resp = litellm.completion(**kwargs)
+            u = resp.usage
+            cost = _record_cost(alias, model, u.prompt_tokens, u.completion_tokens)
+            logger.info("LLM '%s' tokens in=%d out=%d cost=$%.5f",
+                        alias, u.prompt_tokens, u.completion_tokens, cost)
             return resp.choices[0].message.content.strip()
         except _TRANSIENT_ERRORS as e:
             last_exc = e
@@ -87,6 +139,8 @@ def complete(alias: str, messages: list[dict], temperature: float = 0.1,
             model=fb_model, messages=messages, temperature=temperature,
             max_tokens=max_tokens, api_base=fb_base, api_key=fb_key,
         )
+        u = resp.usage
+        _record_cost(f"{alias}(haiku-fallback)", fb_model, u.prompt_tokens, u.completion_tokens)
         return resp.choices[0].message.content.strip()
 
     raise last_exc
