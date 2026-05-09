@@ -1,5 +1,4 @@
 """Basic smoke tests for the orchestrator components."""
-import json
 import sys
 import os
 

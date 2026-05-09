@@ -1,6 +1,4 @@
 import logging
-import litellm
-from config.settings import MODELS, QWEN_API_BASE
 
 logger = logging.getLogger(__name__)
 

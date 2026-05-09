@@ -2,7 +2,7 @@
 import time
 import logging
 import litellm
-from config.settings import MODELS, QWEN_API_BASE, OPENROUTER_API_KEY
+from config.settings import QWEN_API_BASE, OPENROUTER_API_KEY
 
 # Self-signed cert on Tailscale / local vLLM host — disable SSL verification globally
 if QWEN_API_BASE.startswith("https://"):

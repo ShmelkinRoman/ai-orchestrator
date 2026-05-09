@@ -1,7 +1,6 @@
 """AI-SDLC Orchestrator — main entry point."""
 import asyncio
 import logging
-import os
 import re
 import subprocess
 import tempfile

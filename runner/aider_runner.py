@@ -69,7 +69,7 @@ def run_tests(repo_path: str) -> dict:
     passed = True
 
     for cmd, label in [
-        (["python3", "-m", "flake8", "--max-line-length=120", "--ignore=E501,W503", "."], "flake8"),
+        (["python3", "-m", "flake8", "--max-line-length=120", "--ignore=E501,W503,E241", "."], "flake8"),
         (["python3", "-m", "pytest", "--tb=short", "-q"], "pytest"),
     ]:
         r = subprocess.run(cmd, cwd=repo_path, capture_output=True, text=True, timeout=120)

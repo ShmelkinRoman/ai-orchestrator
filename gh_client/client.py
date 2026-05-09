@@ -76,7 +76,7 @@ def ensure_labels():
         ("risk-medium", "fef2c0"),
         ("risk-high", "e11d48"),
     ]
-    existing = {l.name for l in _repo.get_labels()}
+    existing = {lbl.name for lbl in _repo.get_labels()}
     for name, color in required:
         if name not in existing:
             _repo.create_label(name, color)
