@@ -62,6 +62,9 @@ def gather(repo_path: str, keywords: list[str]) -> dict:
     agents_md = core_files.pop("AGENTS.md", "")
     project_map = core_files.pop("AI_PROJECT_MAP.md", "")
 
+    components_path = root / "COMPONENTS.md"
+    components_md = components_path.read_text(encoding="utf-8") if components_path.exists() else None
+
     all_snippets = {**core_files, **test_files, **extra_snippets}
     logger.info(
         "Context: %d core, %d test, %d extra files",
@@ -72,4 +75,5 @@ def gather(repo_path: str, keywords: list[str]) -> dict:
         "project_map": project_map,
         "relevant_files": list(all_snippets.keys()),
         "file_snippets": all_snippets,
+        "components_md": components_md,
     }

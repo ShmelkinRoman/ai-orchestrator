@@ -17,6 +17,7 @@ import gh_client.client as gh
 import gh_client.project as project
 import notifications.telegram as tg
 import runner.aider_runner as aider
+import runner.components as components_registry
 import httpx
 from config.settings import GITHUB_REPO, GITHUB_TOKEN, QWEN_API_BASE
 
@@ -162,9 +163,16 @@ async def process_issue(issue) -> None:
 
     aider_result = aider.run(str(repo_path), qwen_prompt or spec)
 
-    if aider_result["changed_files"]:
-        aider.commit_changes(str(repo_path), f"feat: {title} #{num}")
+    if not aider_result["changed_files"]:
+        project.move_issue(num, node_id, "Needs Clarification")
+        tg.update_task_status(num, title, "No Changes")
+        stages["code"] = "no changes (Qwen made 0 edits)"
+        await tg.send_task_summary(num, title, stages, llm.get_run_cost_report(),
+                                   error="Qwen не внёс никаких изменений. "
+                                         "Возможно, промпт слишком длинный или задача слишком сложная.")
+        return
 
+    aider.commit_changes(str(repo_path), f"feat: {title} #{num}")
     diff = aider_result["diff"]
     changed_files = aider_result["changed_files"]
     stages["code"] = f"Qwen local ({len(changed_files)} files)"
@@ -291,6 +299,7 @@ Closes #{num}
             stages["docs"] = "skipped"
         else:
             docs_agent.run(str(repo_path), changed_files, spec, diff)
+            components_registry.generate(str(repo_path))
             try:
                 aider.commit_changes(str(repo_path), f"docs: update after #{num}")
                 subprocess.run(["git", "push", remote_url, "main"], cwd=str(repo_path), check=True)

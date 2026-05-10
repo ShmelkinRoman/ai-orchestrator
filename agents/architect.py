@@ -14,6 +14,12 @@ def run(intake_result: dict, triage_result: dict, context: dict) -> str:
         f"### {fp}\n```\n{code}\n```"
         for fp, code in context.get("file_snippets", {}).items()
     )
+    components_section = context.get("components_md")
+    components_block = (
+        f"\n\nCOMPONENTS.md (existing public API — do not duplicate):\n{components_section[:6000]}"
+        if components_section
+        else ""
+    )
     user_content = f"""
 User story: {intake_result.get('user_story')}
 
@@ -27,7 +33,7 @@ AGENTS.md:
 
 Relevant files: {', '.join(context.get('relevant_files', [])) or 'none'}
 
-{snippets}
+{snippets}{components_block}
 """
     logger.info("Architect agent running with model %s", model)
     spec = complete(
