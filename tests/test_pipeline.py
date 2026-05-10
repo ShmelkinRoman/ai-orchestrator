@@ -71,7 +71,7 @@ def test_cost_log_append_run(tmp_path):
     record = {"issue": 1, "actual_usd": 0.01, "sonnet_eq_usd": 0.05}
     append_run(record, log_path=log_file)
     assert log_file.exists()
-    lines = [l for l in log_file.read_text().splitlines() if l.strip()]
+    lines = [line for line in log_file.read_text().splitlines() if line.strip()]
     assert len(lines) == 1
 
 
@@ -81,7 +81,7 @@ def test_cost_log_jsonl_format(tmp_path):
     log_file = tmp_path / "costs.jsonl"
     append_run({"issue": 1, "actual_usd": 0.01, "sonnet_eq_usd": 0.05}, log_path=log_file)
     append_run({"issue": 2, "actual_usd": 0.02, "sonnet_eq_usd": 0.10}, log_path=log_file)
-    lines = [l for l in log_file.read_text().splitlines() if l.strip()]
+    lines = [line for line in log_file.read_text().splitlines() if line.strip()]
     assert len(lines) == 2
     for line in lines:
         entry = json.loads(line)
