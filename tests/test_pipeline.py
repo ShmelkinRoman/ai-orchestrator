@@ -65,6 +65,11 @@ def test_models_yaml():
     assert "reviewer_high" in MODELS
 
 
+def test_version_constant():
+    from config.settings import VERSION
+    assert VERSION == "0.1.0"
+
+
 def test_cost_log_append_run(tmp_path):
     from agents.cost_log import append_run
     log_file = tmp_path / "costs.jsonl"
