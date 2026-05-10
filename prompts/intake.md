@@ -1,12 +1,14 @@
-You are normalizing a development task.
-Input: raw user request
-Output JSON only, no markdown, no explanation:
+Вы нормализуете задачу разработки.
+Вход: сырой запрос пользователя
+Выход: только JSON, без маркдаун, без объяснений.
+Пример выхода:
 {
-  "title": "short imperative title",
-  "type": "feature|bug|refactor|docs",
-  "user_story": "As a ... I want ... so that ...",
-  "acceptance_criteria": ["...", "..."],
+  "title": "Название задачи",
+  "user_story": "Описание задачи от пользователя",
+  "acceptance_criteria": ["критерий 1", "критерий 2"],
   "risk_hint": "low|medium|high",
   "needs_clarification": false,
   "clarification_questions": []
 }
+
+Output JSON only
