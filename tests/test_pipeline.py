@@ -63,3 +63,52 @@ def test_models_yaml():
     assert "intake_agent" in MODELS
     assert "architect_agent" in MODELS
     assert "reviewer_high" in MODELS
+
+
+def test_cost_log_append_run(tmp_path):
+    from agents.cost_log import append_run
+    log_file = tmp_path / "costs.jsonl"
+    record = {"issue": 1, "actual_usd": 0.01, "sonnet_eq_usd": 0.05}
+    append_run(record, log_path=log_file)
+    assert log_file.exists()
+    lines = [l for l in log_file.read_text().splitlines() if l.strip()]
+    assert len(lines) == 1
+
+
+def test_cost_log_jsonl_format(tmp_path):
+    import json
+    from agents.cost_log import append_run
+    log_file = tmp_path / "costs.jsonl"
+    append_run({"issue": 1, "actual_usd": 0.01, "sonnet_eq_usd": 0.05}, log_path=log_file)
+    append_run({"issue": 2, "actual_usd": 0.02, "sonnet_eq_usd": 0.10}, log_path=log_file)
+    lines = [l for l in log_file.read_text().splitlines() if l.strip()]
+    assert len(lines) == 2
+    for line in lines:
+        entry = json.loads(line)
+        assert "issue" in entry
+        assert "actual_usd" in entry
+        assert "sonnet_eq_usd" in entry
+
+
+def test_cost_log_total_stats(tmp_path):
+    from agents.cost_log import append_run, total_stats
+    log_file = tmp_path / "costs.jsonl"
+    append_run({"issue": 1, "actual_usd": 0.01, "sonnet_eq_usd": 0.05}, log_path=log_file)
+    append_run({"issue": 2, "actual_usd": 0.02, "sonnet_eq_usd": 0.10}, log_path=log_file)
+    stats = total_stats(log_path=log_file)
+    assert stats["run_count"] == 2
+    assert abs(stats["actual_usd"] - 0.03) < 1e-9
+    assert abs(stats["sonnet_eq_usd"] - 0.15) < 1e-9
+    assert abs(stats["saved_usd"] - 0.12) < 1e-9
+
+
+def test_cost_log_read_recent(tmp_path):
+    from agents.cost_log import append_run, read_recent
+    log_file = tmp_path / "costs.jsonl"
+    append_run({"issue": 1, "actual_usd": 0.01, "sonnet_eq_usd": 0.05}, log_path=log_file)
+    append_run({"issue": 2, "actual_usd": 0.02, "sonnet_eq_usd": 0.10}, log_path=log_file)
+    append_run({"issue": 3, "actual_usd": 0.03, "sonnet_eq_usd": 0.15}, log_path=log_file)
+    recent = read_recent(2, log_path=log_file)
+    assert len(recent) == 2
+    assert recent[0]["issue"] == 2
+    assert recent[1]["issue"] == 3
