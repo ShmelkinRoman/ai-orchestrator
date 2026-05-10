@@ -39,6 +39,14 @@ def add_comment(issue, body: str):
     return issue.create_comment(body)
 
 
+def delete_branch(branch_name: str):
+    try:
+        _repo.get_git_ref(f"heads/{branch_name}").delete()
+        logger.info("Deleted remote branch %s", branch_name)
+    except GithubException:
+        pass
+
+
 def create_branch(branch_name: str, base: str = "main"):
     try:
         ref = _repo.get_git_ref(f"heads/{base}")

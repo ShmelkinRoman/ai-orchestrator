@@ -38,13 +38,19 @@ def _clone_repo(issue_number: int) -> Path:
     url = f"https://{GITHUB_TOKEN}@github.com/{GITHUB_REPO}.git"
     if target.exists():
         try:
+            remote = subprocess.run(
+                ["git", "remote", "get-url", "origin"],
+                cwd=str(target), capture_output=True, text=True, check=True,
+            ).stdout.strip()
+            if GITHUB_REPO not in remote:
+                raise subprocess.CalledProcessError(1, "wrong_remote")
             subprocess.run(["git", "checkout", "main"], cwd=str(target),
                            check=True, capture_output=True)
             subprocess.run(["git", "pull", "origin", "main"], cwd=str(target),
                            check=True, capture_output=True)
             return target
         except subprocess.CalledProcessError:
-            logger.warning("repo-%d: stale clone, re-cloning", issue_number)
+            logger.warning("repo-%d: wrong remote or stale clone, re-cloning", issue_number)
             shutil.rmtree(target)
     subprocess.run(["git", "clone", url, str(target)], check=True)
     return target
@@ -143,17 +149,16 @@ async def process_issue(issue) -> None:
 
     # --- Step 5: Aider + Qwen ---
     branch = f"ai/{num}-{_slugify(title)}"
-    try:
-        gh.create_branch(branch)
-    except Exception as e:
-        logger.warning("Branch create: %s", e)
-
-    subprocess.run(["git", "fetch", "origin"], cwd=str(repo_path))
-    subprocess.run(["git", "checkout", "-b", branch, f"origin/{branch}"],
-                   cwd=str(repo_path), capture_output=True)
+    # Always delete and recreate the remote branch from current main to avoid
+    # corrupted history from previous failed runs.
+    gh.delete_branch(branch)
+    gh.create_branch(branch)
+    # Local branch: created from the freshly-cloned main HEAD (no origin/branch needed).
+    subprocess.run(["git", "checkout", "-b", branch], cwd=str(repo_path), capture_output=True)
 
     project.move_issue(num, node_id, "In Development")
     tg.update_task_status(num, title, "In Development")
+    await tg.set_pipeline_stage(num, "In Development — Qwen пишет код...")
 
     aider_result = aider.run(str(repo_path), qwen_prompt or spec)
 
@@ -167,11 +172,13 @@ async def process_issue(issue) -> None:
     # --- Step 6: Tests ---
     project.move_issue(num, node_id, "Tests Running")
     tg.update_task_status(num, title, "Tests Running")
+    await tg.set_pipeline_stage(num, "Tests Running — flake8 + pytest...")
 
     test_result = aider.run_tests(str(repo_path))
     fix_attempts = 0
     while not test_result["passed"] and fix_attempts < 2:
         fix_attempts += 1
+        await tg.set_pipeline_stage(num, f"Tests Running — fix attempt {fix_attempts}...")
         fix_prompt = f"Fix test failures:\n{test_result['output'][:2000]}"
         aider.run(str(repo_path), fix_prompt, changed_files)
         aider.commit_changes(str(repo_path), f"fix: test fixes attempt {fix_attempts} #{num}")
@@ -188,6 +195,7 @@ async def process_issue(issue) -> None:
     stages["tests"] = "passed" if fix_attempts == 0 else f"passed ({fix_attempts} fix)"
 
     # --- Step 7: Review ---
+    await tg.set_pipeline_stage(num, "AI Review — анализирую diff...")
     review = reviewer_agent.run(
         risk=risk,
         issue_body=f"Title: {title_raw}\n{body}",
@@ -241,6 +249,7 @@ async def process_issue(issue) -> None:
 
 Closes #{num}
 """
+    await tg.set_pipeline_stage(num, "Pushing PR...")
     remote_url = f"https://{GITHUB_TOKEN}@github.com/{GITHUB_REPO}.git"
     subprocess.run(
         ["git", "push", "-f", remote_url, f"HEAD:{branch}"],

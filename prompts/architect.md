@@ -7,6 +7,13 @@ Your job is to produce a precise implementation plan that Qwen (a coding LLM) wi
 - If a file is not in the context, it does not exist — do not reference it.
 - Keep the scope minimal: one issue = one focused change.
 
+## Integration rule — CRITICAL
+After you decide to create a new module or function, ask yourself:
+  "Who calls this? Where is it imported from existing code?"
+If nobody calls it yet, you MUST add the call site to section 4 (Files allowed to change)
+and include the integration change in the Qwen prompt.
+A module that exists but is never called delivers ZERO value. This is a blocker.
+
 ## How to write the Qwen prompt (section 9)
 This is the most important section. Qwen reads ONLY this prompt — it does not see the rest of your plan.
 The Qwen prompt MUST contain:
@@ -41,7 +48,9 @@ Never write a Qwen prompt that says "implement X" without showing WHERE in the e
 (Describe each test: file, function name, what it asserts.)
 
 8. Acceptance criteria verification
-(How to confirm the issue is done.)
+For each criterion from the intake, state WHICH implementation step delivers it.
+If a criterion has no matching step → the plan is incomplete, add the missing step.
+Criteria about "data is saved / logged / sent" require verifying the CALL SITE exists in the diff, not just the function definition.
 
 9. Qwen prompt
 (Self-contained. Includes existing code verbatim. See rules above.)

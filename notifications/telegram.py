@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 _approval_queues: dict[str, asyncio.Queue] = {}
 _app: Application | None = None
 _active_tasks: dict[int, dict] = {}
+_working_message_ids: dict[int, int] = {}  # issue_num → telegram message_id
 
 
 def _normalize_proxy(proxy: str | None) -> str | None:
@@ -226,11 +227,42 @@ def update_task_status(issue_number: int, title: str, status: str):
     _active_tasks[issue_number] = {"title": title, "status": status}
 
 
+_ACTION_LABELS = {
+    "merge": "Merge ✅",
+    "reject": "Отклонено ❌",
+    "rework": "На доработку 🔄",
+    "approve": "Принято ✅",
+    "clarify": "Уточнение 💬",
+    "cancel": "Отменено ❌",
+    "retry": "Повтор 🔄",
+    "continue": "Продолжить ▶️",
+    "stop": "Остановить ⏹",
+    "haiku": "Через Haiku ☁️",
+}
+
+
+async def set_pipeline_stage(num: int, stage: str):
+    """Edit the working-status message with current pipeline stage."""
+    msg_id = _working_message_ids.get(num)
+    if not msg_id or not _app:
+        return
+    try:
+        await _app.bot.edit_message_text(
+            chat_id=TELEGRAM_CHAT_ID,
+            message_id=msg_id,
+            text=f"⏳ #{num} — {stage}",
+        )
+    except Exception as e:
+        logger.debug("set_pipeline_stage: %s", e)
+
+
 async def _callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     logger.info("Callback received: data=%s", query.data)
     try:
+        # Always answer first — dismisses the button spinner regardless of what follows.
         await query.answer()
+
         data = query.data
         parts = data.rsplit("_", 1)
         if len(parts) != 2:
@@ -238,32 +270,48 @@ async def _callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         prefix, action = parts
         logger.info("prefix=%s action=%s queues=%s", prefix, action, list(_approval_queues.keys()))
-        if prefix in _approval_queues:
-            q = _approval_queues[prefix]
-            if q.empty():
-                await q.put(action)
-                logger.info("Put action '%s' into queue for %s", action, prefix)
-            else:
-                logger.info("Queue already has a result, ignoring duplicate press")
-            _action_labels = {
-                "merge": "Merge",
-                "reject": "Отклонено",
-                "rework": "Доработать",
-                "approve": "Принято",
-                "clarify": "Уточнить",
-                "cancel": "Отменено",
-            }
-            label = _action_labels.get(action, action)
-            try:
-                await query.edit_message_text(text=f"— {label}", parse_mode=None)
-            except Exception as e:
-                logger.warning("edit_message_text failed (%s), removing keyboard only", e)
-                try:
-                    await query.edit_message_reply_markup(reply_markup=None)
-                except Exception as e2:
-                    logger.warning("edit_message_reply_markup also failed: %s", e2)
-        else:
+
+        if prefix not in _approval_queues:
             logger.warning("No queue for prefix=%s (already handled or old message)", prefix)
+            return
+
+        q = _approval_queues[prefix]
+        label = _ACTION_LABELS.get(action, action)
+
+        # UI FIRST — remove buttons and send status BEFORE signalling the pipeline.
+        # If we put to the queue first, the event loop hands control to the pipeline
+        # coroutine (which was waiting on q.get()), and UI updates get delayed by
+        # however long the pipeline's next API calls take.
+
+        # Remove keyboard from the original message.
+        try:
+            await query.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup([]))
+        except Exception as e:
+            logger.warning("edit_reply_markup failed: %s — trying delete", e)
+            try:
+                await query.message.delete()
+            except Exception as e2:
+                logger.error("Cannot remove keyboard (edit+delete both failed): %s", e2)
+
+        # Send working-status message; pipeline will update it as stages progress.
+        try:
+            issue_num = int(prefix.rsplit("_", 1)[-1])
+            working_msg = await _app.bot.send_message(
+                chat_id=TELEGRAM_CHAT_ID,
+                text=f"⏳ {label} — работаю...",
+                parse_mode=None,
+            )
+            _working_message_ids[issue_num] = working_msg.message_id
+        except Exception as e:
+            logger.warning("Failed to send working-status message: %s", e)
+
+        # NOW signal the pipeline to continue.
+        if q.empty():
+            await q.put(action)
+            logger.info("Put action '%s' into queue for %s", action, prefix)
+        else:
+            logger.info("Duplicate press for %s, ignoring", prefix)
+
     except Exception as e:
         logger.exception("Error in callback_handler: %s", e)
 
