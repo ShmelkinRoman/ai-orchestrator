@@ -19,3 +19,4 @@ with open(_models_path) as f:
     MODELS: dict[str, str] = yaml.safe_load(f)
 
 os.environ["OPENROUTER_API_KEY"] = OPENROUTER_API_KEY
+VERSION = "0.1.0"

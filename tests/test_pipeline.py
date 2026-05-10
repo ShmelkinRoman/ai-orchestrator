@@ -112,3 +112,8 @@ def test_cost_log_read_recent(tmp_path):
     assert len(recent) == 2
     assert recent[0]["issue"] == 2
     assert recent[1]["issue"] == 3
+
+
+def test_version_constant():
+    from config.settings import VERSION
+    assert VERSION == "0.1.0"
