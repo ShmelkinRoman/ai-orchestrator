@@ -47,12 +47,23 @@ def run(repo_path: str, prompt: str, allowed_files: list[str] | None = None) -> 
     )
     diff = diff_result.stdout
 
-    # get changed files
+    # get changed files (modified + new untracked)
     files_result = subprocess.run(
-        ["git", "diff", "--name-only", "HEAD"],
+        ["git", "status", "--porcelain"],
         cwd=repo_path, capture_output=True, text=True
     )
-    changed = [f for f in files_result.stdout.strip().splitlines() if f]
+    changed = [
+        line[3:].strip()
+        for line in files_result.stdout.splitlines()
+        if line.strip() and not line.startswith("??")  # exclude untracked outside project
+    ]
+    # also include untracked new files (created by aider)
+    untracked = [
+        line[3:].strip()
+        for line in files_result.stdout.splitlines()
+        if line.startswith("??")
+    ]
+    changed = list(dict.fromkeys(changed + untracked))  # deduplicate, preserve order
 
     return {"success": success, "diff": diff, "changed_files": changed,
             "stdout": stdout, "stderr": stderr}
