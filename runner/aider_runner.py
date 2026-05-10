@@ -26,16 +26,21 @@ def run(repo_path: str, prompt: str, allowed_files: list[str] | None = None) -> 
         cmd.extend(allowed_files)
 
     logger.info("Running aider in %s", repo_path)
-    result = subprocess.run(
-        cmd,
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    stdout = result.stdout
-    stderr = result.stderr
-    success = result.returncode == 0
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        stdout = result.stdout
+        stderr = result.stderr
+        success = result.returncode == 0
+    except subprocess.TimeoutExpired:
+        logger.error("Aider timed out after 600s in %s", repo_path)
+        return {"success": False, "diff": "", "changed_files": [],
+                "stdout": "", "stderr": "Aider timed out after 600s"}
 
     if not success:
         logger.warning("Aider exited %d\nSTDERR: %s", result.returncode, stderr[:500])
