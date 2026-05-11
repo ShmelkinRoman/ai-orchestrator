@@ -116,6 +116,15 @@ def test_pick_developer_deepseek_for_nonconfidential_low(monkeypatch):
     assert choice == "deepseek-coder"
 
 
+def test_pick_developer_cheap_model_matches_yaml(monkeypatch):
+    """S10: cheap_developer alias comes from models.yaml, not hardcoded."""
+    import runner.aider_runner as runner_mod
+    from config.settings import MODELS
+    monkeypatch.setattr(runner_mod, "is_qwen_enabled", lambda: False)
+    choice = runner_mod.pick_developer(risk="low", project_confidential=False, spec_lines=50)
+    assert choice == MODELS["cheap_developer"]["model"]
+
+
 def test_pick_developer_sonnet_for_high_risk(monkeypatch):
     import runner.aider_runner as runner_mod
     monkeypatch.setattr(runner_mod, "is_qwen_enabled", lambda: True)

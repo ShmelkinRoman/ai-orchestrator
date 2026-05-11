@@ -29,14 +29,14 @@ app.mount(
 
 _templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
-_PUBLIC = {"/login"}
+def is_public(path: str) -> bool:
+    return path == "/login" or path.startswith("/static")
 
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    path = request.url.path
     token = os.getenv("WEBUI_TOKEN", "")
-    if token and path not in _PUBLIC and not path.startswith("/static"):
+    if token and not is_public(request.url.path):
         if request.cookies.get("auth") != token:
             return RedirectResponse("/login", status_code=302)
     return await call_next(request)

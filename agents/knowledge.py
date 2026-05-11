@@ -26,7 +26,11 @@ def _get_conn():
         _conn.autocommit = True
         return _conn
     except Exception as e:
-        logger.warning("PostgreSQL unavailable: %s", e)
+        import os
+        if os.getenv("KB_ENABLED", "false").lower() == "true":
+            logger.warning("PostgreSQL unavailable: %s", e)
+        else:
+            logger.debug("PostgreSQL unavailable (KB_ENABLED=false): %s", e)
         return None
 
 
@@ -126,7 +130,7 @@ def embed(text: str) -> list[float]:
         resp = requests.post(
             "https://openrouter.ai/api/v1/embeddings",
             headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-            json={"model": "openai/text-embedding-3-small", "input": text[:8192]},
+            json={"model": "openai/text-embedding-3-small", "input": text[:32000]},
             timeout=30,
         )
         resp.raise_for_status()

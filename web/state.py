@@ -1,9 +1,11 @@
 """Read shared pipeline state written by the orchestrator."""
 import json
+import os
 from pathlib import Path
 
-COSTS_LOG = Path.home() / ".ai-orch-costs.jsonl"
-ACTIVE_FILE = Path.home() / ".ai-orch-active.json"
+_STATE_DIR = Path(os.getenv("AI_ORCH_STATE_DIR", str(Path.home())))
+COSTS_LOG = _STATE_DIR / ".ai-orch-costs.jsonl"
+ACTIVE_FILE = _STATE_DIR / ".ai-orch-active.json"
 
 
 def get_active_pipelines() -> list[dict]:
