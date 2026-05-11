@@ -11,11 +11,11 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parents[1] / ".env")
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from web.auth import handle_login, handle_logout
+from web.auth import handle_login, handle_logout, is_session_valid
 from web.routes import dashboard, issues, logs
 from web.routes import settings as settings_router
 
@@ -29,16 +29,28 @@ app.mount(
 
 _templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
-_PUBLIC = {"/login"}
+# W7: mutating endpoints that must carry HX-Request header
+_HTMX_ONLY_PREFIXES = ("/settings/toggle-", "/issues/")
+
+
+def is_public(path: str) -> bool:
+    return path == "/login" or path.startswith("/static")
 
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
-    token = os.getenv("WEBUI_TOKEN", "")
-    if token and path not in _PUBLIC and not path.startswith("/static"):
-        if request.cookies.get("auth") != token:
+
+    if not is_public(path):
+        # W3: session-based auth (not raw token comparison)
+        if os.getenv("WEBUI_TOKEN", "") and not is_session_valid(request):
             return RedirectResponse("/login", status_code=302)
+
+        # W7: CSRF guard — mutating POSTs must come from HTMX
+        if request.method == "POST" and any(path.startswith(p) for p in _HTMX_ONLY_PREFIXES):
+            if not request.headers.get("HX-Request"):
+                return JSONResponse({"detail": "forbidden"}, status_code=403)
+
     return await call_next(request)
 
 
@@ -53,8 +65,8 @@ async def login(request: Request):
 
 
 @app.get("/logout")
-async def logout():
-    return handle_logout()
+async def logout(request: Request):
+    return handle_logout(request)
 
 
 app.include_router(dashboard.router)
