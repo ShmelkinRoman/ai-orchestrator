@@ -11,6 +11,7 @@ import agents.context as context_agent
 import agents.docs as docs_agent
 import agents.intake as intake_agent
 import agents.llm as llm
+from agents.post_merge_hook import run as post_merge_hook
 import agents.reviewer as reviewer_agent
 import agents.triage as triage_agent
 import gh_client.client as gh
@@ -285,6 +286,10 @@ Closes #{num}
 
     if decision == "merge":
         gh.merge_pull_request(pr.number)
+        try:
+            post_merge_hook(str(repo_path), changed_files)
+        except Exception as e:
+            logger.warning("post_merge_hook failed: %s", e)
         project.move_issue(num, node_id, "Released")
         gh.remove_label(issue, "ai-in-progress")
         gh.add_label(issue, "ai-done")
