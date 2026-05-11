@@ -3,10 +3,8 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from config.settings import (
-    QWEN_API_BASE, OPENROUTER_API_KEY,
-    PROJECT_CONFIDENTIAL, MODELS, is_qwen_enabled,
-)
+from config.settings import QWEN_API_BASE, OPENROUTER_API_KEY
+from agents.llm import pick_developer  # S4: unified in agents/llm
 
 logger = logging.getLogger(__name__)
 
@@ -37,38 +35,6 @@ _DEVELOPER_PROFILES = {
     },
 }
 
-
-def pick_developer(risk: str, project_confidential: bool | None = None,
-                   spec_lines: int = 0) -> str:
-    """Choose a code-executor model alias for the developer stage.
-
-    Rules:
-      1. Qwen-local — only when enabled, risk=low, and spec ≤ max_file_lines (yaml).
-      2. DeepSeek — non-confidential project + risk=low (cheap cloud path).
-      3. Sonnet-4.6 — default fallback (handles all medium/high risk + confidential).
-    """
-    if project_confidential is None:
-        project_confidential = PROJECT_CONFIDENTIAL
-
-    local = MODELS.get("local_developer", {}) or {}
-    max_lines = int(local.get("max_file_lines", 200))
-    local_model = local.get("model", "qwen-local")
-    fallback = local.get("fallback", "claude-sonnet-4-6")
-
-    cheap = MODELS.get("cheap_developer", {}) or {}
-    cheap_model = cheap.get("model", "deepseek-coder")
-
-    if is_qwen_enabled() and risk == "low" and spec_lines < max_lines:
-        logger.info("pick_developer: qwen-local (risk=%s, spec_lines=%d)", risk, spec_lines)
-        return local_model
-
-    if not project_confidential and risk == "low":
-        logger.info("pick_developer: %s (non-confidential, risk=low)", cheap_model)
-        return cheap_model
-
-    logger.info("pick_developer: %s (default, risk=%s, qwen_enabled=%s)",
-                fallback, risk, is_qwen_enabled())
-    return fallback
 
 
 def _profile(model_alias: str) -> dict:

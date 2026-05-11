@@ -32,7 +32,7 @@ def get_recent_runs(n: int = 10) -> list[dict]:
 def get_run_by_id(run_id: str) -> dict | None:
     if not COSTS_LOG.exists():
         return None
-    for line in COSTS_LOG.read_text(encoding="utf-8").splitlines():
+    for line in reversed(COSTS_LOG.read_text(encoding="utf-8").splitlines()):
         line = line.strip()
         if not line:
             continue
