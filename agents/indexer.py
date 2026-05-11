@@ -3,7 +3,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from agents.knowledge import embed, init_db, upsert_chunk
+from agents.knowledge import embed, init_db, replace_file_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def _chunks(text: str) -> list[str]:
 
 
 def index_file(repo_path: str, file_path: str, project_id: str) -> int:
-    """Index one file. Returns number of chunks stored."""
+    """Index one file atomically (W4+W5). Returns number of chunks stored."""
     full = Path(repo_path) / file_path
     if not full.exists():
         return 0
@@ -45,15 +45,18 @@ def index_file(repo_path: str, file_path: str, project_id: str) -> int:
     except OSError:
         return 0
 
-    count = 0
+    pairs: list[tuple[str, list[float]]] = []
     for chunk in _chunks(text):
         if not chunk.strip():
             continue
         emb = embed(chunk)
         if emb:
-            upsert_chunk(project_id, file_path, chunk, emb)
-            count += 1
+            pairs.append((chunk, emb))
 
+    if not pairs:
+        return 0
+
+    count = replace_file_chunks(project_id, file_path, pairs)
     if count:
         logger.debug("Indexed %s → %d chunks", file_path, count)
     return count

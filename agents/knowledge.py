@@ -75,6 +75,7 @@ def init_db() -> bool:
 
 def upsert_chunk(project_id: str, file_path: str, chunk_text: str,
                  embedding: list[float], summary: Optional[str] = None) -> bool:
+    """Insert a single chunk. Kept for backward-compat; prefer replace_file_chunks."""
     conn = _get_conn()
     if not conn:
         return False
@@ -93,6 +94,40 @@ def upsert_chunk(project_id: str, file_path: str, chunk_text: str,
     except Exception as e:
         logger.warning("upsert_chunk failed: %s", e)
         return False
+
+
+def replace_file_chunks(project_id: str, file_path: str,
+                        chunks: list[tuple[str, list[float]]]) -> int:
+    """W4+W5: delete all old chunks for file and insert new ones atomically.
+
+    Fixes orphan chunks (W4) and non-atomic DELETE-INSERT (W5).
+    Returns number of chunks inserted.
+    """
+    conn = _get_conn()
+    if not conn:
+        return 0
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM code_chunks WHERE project_id=%s AND file_path=%s",
+                (project_id, file_path),
+            )
+            for chunk_text, embedding in chunks:
+                cur.execute(
+                    """INSERT INTO code_chunks
+                       (project_id, file_path, chunk_text, embedding, updated_at)
+                       VALUES (%s, %s, %s, %s::vector, NOW())""",
+                    (project_id, file_path, chunk_text, _vec(embedding)),
+                )
+        conn.commit()
+        return len(chunks)
+    except Exception as e:
+        conn.rollback()
+        logger.warning("replace_file_chunks failed: %s", e)
+        return 0
+    finally:
+        conn.autocommit = True
 
 
 def search(project_id: str, query_embedding: list[float], limit: int = 8) -> list[dict]:
