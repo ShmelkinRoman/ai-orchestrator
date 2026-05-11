@@ -4,7 +4,6 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Files always read in full regardless of keywords — they define existing patterns.
 _CORE_CANDIDATES = [
     "app.py", "main.py", "server.py", "index.py", "api.py",
     "requirements.txt", "package.json", "go.mod", "Cargo.toml",
@@ -16,7 +15,53 @@ _TEST_DIRS = ["tests", "test", "__tests__", "spec"]
 
 
 def gather(repo_path: str, keywords: list[str]) -> dict:
-    """Collects full-picture context: core files + tests + keyword grep."""
+    """Collect context: vector KB if KB_ENABLED=true, else grep fallback."""
+    from config.settings import KB_ENABLED
+    if KB_ENABLED:
+        result = _gather_kb(repo_path, keywords)
+        if result is not None:
+            return result
+
+    return _gather_grep(repo_path, keywords)
+
+
+def _gather_kb(repo_path: str, keywords: list[str]) -> dict | None:
+    """Vector-search based context. Returns None if KB unavailable or empty."""
+    try:
+        from config.settings import GITHUB_REPO
+        from agents.knowledge import search_knowledge
+
+        query = " ".join(keywords)
+        chunks = search_knowledge(GITHUB_REPO, query, limit=8)
+        if not chunks:
+            return None
+
+        file_snippets: dict[str, str] = {}
+        for chunk in chunks:
+            fp = chunk["file_path"]
+            if fp not in file_snippets:
+                file_snippets[fp] = chunk["chunk_text"]
+            else:
+                file_snippets[fp] += "\n...\n" + chunk["chunk_text"]
+
+        root = Path(repo_path)
+        components_path = root / "COMPONENTS.md"
+        components_md = components_path.read_text(encoding="utf-8") if components_path.exists() else None
+
+        logger.info("KB context: %d chunks from %d files", len(chunks), len(file_snippets))
+        return {
+            "agents_md": "",
+            "project_map": "",
+            "relevant_files": list(file_snippets.keys()),
+            "file_snippets": file_snippets,
+            "components_md": components_md,
+        }
+    except Exception as e:
+        logger.warning("KB gather failed, falling back to grep: %s", e)
+        return None
+
+
+def _gather_grep(repo_path: str, keywords: list[str]) -> dict:
     root = Path(repo_path)
 
     core_files: dict[str, str] = {}

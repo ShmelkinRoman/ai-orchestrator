@@ -17,6 +17,12 @@ LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://localhost:4000")
 QWEN_ENABLED = os.getenv("QWEN_ENABLED", "true").lower() == "true"
 PROJECT_CONFIDENTIAL = os.getenv("PROJECT_CONFIDENTIAL", "true").lower() == "true"
 
+KB_ENABLED = os.getenv("KB_ENABLED", "false").lower() == "true"
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://orchestrator:orchestrator@localhost:5432/ai_orchestrator",
+)
+
 _models_path = Path(__file__).parent / "models.yaml"
 with open(_models_path) as f:
     MODELS: dict = yaml.safe_load(f)
