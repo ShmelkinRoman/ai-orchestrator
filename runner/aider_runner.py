@@ -29,8 +29,9 @@ _DEVELOPER_PROFILES = {
         "extra_flags": ["--map-tokens", "0", "--edit-format", "diff"],
         "env": {"OPENAI_API_KEY": OPENROUTER_API_KEY, "OPENROUTER_API_KEY": OPENROUTER_API_KEY},
     },
+    # deepseek-coder removed from OpenRouter; deepseek-chat is the current coding model
     "deepseek-coder": {
-        "aider_model": "openrouter/deepseek/deepseek-coder",
+        "aider_model": "openrouter/deepseek/deepseek-chat",
         "api_base": _OPENROUTER_BASE,
         "extra_flags": ["--map-tokens", "0", "--edit-format", "diff"],
         "env": {"OPENAI_API_KEY": OPENROUTER_API_KEY, "OPENROUTER_API_KEY": OPENROUTER_API_KEY},

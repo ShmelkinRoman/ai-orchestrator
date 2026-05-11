@@ -29,12 +29,13 @@ _MODEL_MAP = {
         OPENROUTER_API_KEY,
     ),
     "claude-opus-4-7": (
-        "openrouter/anthropic/claude-opus-4",
+        "openrouter/anthropic/claude-opus-4.7",
         _OPENROUTER_BASE,
         OPENROUTER_API_KEY,
     ),
+    # deepseek-coder was removed from OpenRouter; deepseek-chat is the current coding model
     "deepseek-coder": (
-        "openrouter/deepseek/deepseek-coder",
+        "openrouter/deepseek/deepseek-chat",
         _OPENROUTER_BASE,
         OPENROUTER_API_KEY,
     ),
@@ -69,12 +70,12 @@ _TRANSIENT_ERRORS = (
 
 # Cost per 1M tokens (input/output) in USD — for comparison reporting
 _COST_PER_1M = {
-    "openai/qwen":                             (0.0,   0.0),    # local, free
-    "openrouter/anthropic/claude-opus-4":      (15.0,  75.0),
+    "openai/qwen":                              (0.0,   0.0),    # local, free
+    "openrouter/anthropic/claude-opus-4.7":    (15.0,  75.0),
     "openrouter/anthropic/claude-sonnet-4.6":  (3.0,   15.0),
     "openrouter/anthropic/claude-haiku-4.5":   (0.80,  4.0),
     "openrouter/openai/gpt-4o-mini":           (0.15,  0.60),
-    "openrouter/deepseek/deepseek-coder":      (0.14,  0.28),
+    "openrouter/deepseek/deepseek-chat":       (0.14,  0.28),
     # hypothetical: what if Sonnet did this task instead
     "__sonnet_substitute__":                   (3.0,   15.0),
 }
