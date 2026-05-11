@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Задачи — AI Orchestrator{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">Задачи GitHub</h1>
+
+<!-- Label filters -->
+<div class="flex gap-2 mb-6 flex-wrap">
+  <a href="/issues"
+     class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
+       {% if not active_label %}bg-indigo-600 text-white{% else %}bg-gray-800 text-gray-400 hover:bg-gray-700{% endif %}">
+    Все
+  </a>
+  <a href="/issues?label=ai-ready"
+     class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
+       {% if active_label == 'ai-ready' %}bg-indigo-600 text-white{% else %}bg-gray-800 text-gray-400 hover:bg-gray-700{% endif %}">
+    ai-ready
+  </a>
+  <a href="/issues?label=ai-in-progress"
+     class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
+       {% if active_label == 'ai-in-progress' %}bg-indigo-600 text-white{% else %}bg-gray-800 text-gray-400 hover:bg-gray-700{% endif %}">
+    ai-in-progress
+  </a>
+</div>
+
+{% if issues %}
+<div class="space-y-3">
+  {% for issue in issues %}
+  <div class="bg-gray-900 rounded-lg p-4 border border-gray-800 flex items-start gap-4
+              hover:border-gray-700 transition-colors">
+    <div class="flex-1 min-w-0">
+      <div class="flex items-baseline gap-2 mb-2">
+        <span class="font-mono text-gray-500 text-xs shrink-0">#{{ issue.id }}</span>
+        <a href="{{ issue.url }}" target="_blank" rel="noopener"
+           class="font-medium text-sm hover:text-indigo-400 transition-colors truncate">
+          {{ issue.title }}
+        </a>
+      </div>
+      <div class="flex gap-1.5 flex-wrap">
+        {% for label in issue.labels %}
+        <span class="px-1.5 py-0.5 rounded text-xs
+          {% if label == 'ai-ready' %}bg-blue-900/60 text-blue-300 border border-blue-800
+          {% elif label == 'ai-in-progress' %}bg-yellow-900/60 text-yellow-300 border border-yellow-800
+          {% else %}bg-gray-800 text-gray-400{% endif %}">
+          {{ label }}
+        </span>
+        {% endfor %}
+        {% if issue.pr_url %}
+        <a href="{{ issue.pr_url }}" target="_blank" rel="noopener"
+           class="px-1.5 py-0.5 rounded text-xs bg-purple-900/60 text-purple-300 border border-purple-800 hover:bg-purple-800/60 transition-colors">
+          PR ↗
+        </a>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if 'ai-ready' in issue.labels and 'ai-in-progress' not in issue.labels %}
+    <button
+      hx-post="/issues/{{ issue.id }}/trigger"
+      hx-confirm="Запустить пайплайн для issue #{{ issue.id }}?"
+      hx-swap="outerHTML"
+      class="shrink-0 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs
+             font-medium transition-colors whitespace-nowrap">
+      Запустить
+    </button>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-16">
+  <p class="text-gray-500 text-sm">Нет задач с метками ai-ready / ai-in-progress.</p>
+  <a href="https://github.com/{{ request.query_params }}" class="mt-2 text-indigo-400 hover:underline text-sm">
+    Открыть GitHub Issues ↗
+  </a>
+</div>
+{% endif %}
+{% endblock %}

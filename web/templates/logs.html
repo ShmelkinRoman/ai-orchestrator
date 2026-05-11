@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Лог прогона — AI Orchestrator{% endblock %}
+
+{% block content %}
+{% if run %}
+<div class="flex items-center gap-3 mb-6">
+  <a href="/" class="text-gray-500 hover:text-gray-300 text-sm transition-colors">← Дашборд</a>
+  <span class="text-gray-700">/</span>
+  <h1 class="text-xl font-bold">Прогон #{{ run.issue or run.run_id or '?' }}</h1>
+</div>
+
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+  <div class="bg-gray-900 rounded-lg p-3 border border-gray-800">
+    <div class="text-xs text-gray-500 mb-1">Модель</div>
+    <div class="font-mono text-sm truncate">{{ run.model or '—' }}</div>
+  </div>
+  <div class="bg-gray-900 rounded-lg p-3 border border-gray-800">
+    <div class="text-xs text-gray-500 mb-1">Стоимость</div>
+    <div class="text-sm">${{ "%.6f" | format(run.actual_usd or 0) }}</div>
+  </div>
+  <div class="bg-gray-900 rounded-lg p-3 border border-gray-800">
+    <div class="text-xs text-gray-500 mb-1">Эквивалент Sonnet</div>
+    <div class="text-sm">${{ "%.6f" | format(run.sonnet_eq_usd or 0) }}</div>
+  </div>
+  <div class="bg-gray-900 rounded-lg p-3 border border-gray-800">
+    <div class="text-xs text-gray-500 mb-1">Дата</div>
+    <div class="text-sm text-gray-300">{{ run.timestamp or '—' }}</div>
+  </div>
+</div>
+
+<div class="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+  <div class="border-b border-gray-800 px-4 py-2.5 text-xs text-gray-400 font-medium uppercase tracking-wider">
+    Детали прогона
+  </div>
+  <div class="p-4 overflow-auto max-h-[600px]">
+    <pre class="text-xs text-gray-300 whitespace-pre-wrap font-mono leading-relaxed">{{ run | tojson(indent=2) }}</pre>
+  </div>
+</div>
+
+{% else %}
+<div class="text-center py-16">
+  <p class="text-gray-500 mb-4">Прогон не найден.</p>
+  <a href="/" class="text-indigo-400 hover:underline text-sm">← Дашборд</a>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}AI Orchestrator{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+
+  <nav class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center gap-6">
+    <span class="font-bold text-indigo-400 text-lg tracking-tight">AI Orchestrator</span>
+    {% set p = request.url.path %}
+    <a href="/"
+       class="text-sm {% if p == '/' %}text-white font-medium{% else %}text-gray-400 hover:text-gray-200{% endif %}">
+      Дашборд
+    </a>
+    <a href="/issues"
+       class="text-sm {% if p.startswith('/issues') %}text-white font-medium{% else %}text-gray-400 hover:text-gray-200{% endif %}">
+      Задачи
+    </a>
+    <a href="/settings"
+       class="text-sm {% if p.startswith('/settings') %}text-white font-medium{% else %}text-gray-400 hover:text-gray-200{% endif %}">
+      Настройки
+    </a>
+    <div class="ml-auto">
+      <a href="/logout" class="text-gray-500 hover:text-gray-300 text-xs">Выйти</a>
+    </div>
+  </nav>
+
+  <main class="px-6 py-6 max-w-5xl mx-auto">
+    {% block content %}{% endblock %}
+  </main>
+
+</body>
+</html>
