@@ -20,7 +20,7 @@ PROJECT_CONFIDENTIAL = os.getenv("PROJECT_CONFIDENTIAL", "true").lower() == "tru
 KB_ENABLED = os.getenv("KB_ENABLED", "false").lower() == "true"
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://orchestrator:orchestrator@localhost:5432/ai_orchestrator",
+    "postgresql://orchestrator:orchestrator@localhost:5433/ai_orchestrator",
 )
 
 _models_path = Path(__file__).parent / "models.yaml"
