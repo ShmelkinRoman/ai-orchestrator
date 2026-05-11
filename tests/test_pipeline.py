@@ -60,9 +60,80 @@ def test_settings_loaded():
 
 def test_models_yaml():
     from config.settings import MODELS
-    assert "intake_agent" in MODELS
-    assert "architect_agent" in MODELS
-    assert "reviewer_high" in MODELS
+    assert "roles" in MODELS
+    for key in ("triage", "intake", "architect_low", "architect_high",
+                "developer", "reviewer_low", "reviewer_high", "docs"):
+        assert key in MODELS["roles"], f"missing role: {key}"
+    assert MODELS["local_developer"]["model"] == "qwen-local"
+    assert MODELS["local_developer"]["fallback"]
+    assert MODELS["cheap_developer"]["model"]
+
+
+def test_pick_model_architect_branches_on_risk():
+    from agents.llm import pick_model
+    low = pick_model("architect", risk="low")
+    high = pick_model("architect", risk="high")
+    assert low != high
+    assert "opus" in high or "4-7" in high
+
+
+def test_pick_model_reviewer_branches_on_risk():
+    from agents.llm import pick_model
+    assert pick_model("reviewer", risk="low") == pick_model("reviewer", risk="medium")
+    assert pick_model("reviewer", risk="high") != pick_model("reviewer", risk="low")
+
+
+def test_pick_model_unknown_role_raises():
+    import pytest
+    from agents.llm import pick_model
+    with pytest.raises(KeyError):
+        pick_model("nonexistent_role")
+
+
+def test_pick_developer_qwen_when_low_risk_short_spec(monkeypatch):
+    import agents.llm as llm_mod
+    import runner.aider_runner as runner_mod
+    monkeypatch.setattr(runner_mod, "QWEN_ENABLED", True)
+    monkeypatch.setattr(llm_mod, "QWEN_ENABLED", True)
+    assert runner_mod.pick_developer(risk="low",
+                                     project_confidential=True,
+                                     spec_lines=50) == "qwen-local"
+
+
+def test_pick_developer_fallback_when_qwen_disabled(monkeypatch):
+    import runner.aider_runner as runner_mod
+    monkeypatch.setattr(runner_mod, "QWEN_ENABLED", False)
+    choice = runner_mod.pick_developer(risk="low",
+                                       project_confidential=True,
+                                       spec_lines=50)
+    assert choice == "claude-sonnet-4-6"
+
+
+def test_pick_developer_deepseek_for_nonconfidential_low(monkeypatch):
+    import runner.aider_runner as runner_mod
+    monkeypatch.setattr(runner_mod, "QWEN_ENABLED", False)
+    choice = runner_mod.pick_developer(risk="low",
+                                       project_confidential=False,
+                                       spec_lines=50)
+    assert choice == "deepseek-coder"
+
+
+def test_pick_developer_sonnet_for_high_risk(monkeypatch):
+    import runner.aider_runner as runner_mod
+    monkeypatch.setattr(runner_mod, "QWEN_ENABLED", True)
+    choice = runner_mod.pick_developer(risk="high",
+                                       project_confidential=False,
+                                       spec_lines=50)
+    assert choice == "claude-sonnet-4-6"
+
+
+def test_pick_developer_sonnet_when_spec_too_large(monkeypatch):
+    import runner.aider_runner as runner_mod
+    monkeypatch.setattr(runner_mod, "QWEN_ENABLED", True)
+    choice = runner_mod.pick_developer(risk="low",
+                                       project_confidential=True,
+                                       spec_lines=500)
+    assert choice == "claude-sonnet-4-6"
 
 
 def test_cost_log_append_run(tmp_path):

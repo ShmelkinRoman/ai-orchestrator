@@ -1,7 +1,6 @@
 import logging
 from pathlib import Path
-from agents.llm import complete
-from config.settings import MODELS
+from agents.llm import complete, pick_model
 
 logger = logging.getLogger(__name__)
 
@@ -9,7 +8,8 @@ _PROMPT = (Path(__file__).parent.parent / "prompts/architect.md").read_text()
 
 
 def run(intake_result: dict, triage_result: dict, context: dict) -> str:
-    model = MODELS["architect_agent"]
+    risk = triage_result.get("risk", "low")
+    model = pick_model("architect", risk=risk)
     snippets = "\n\n".join(
         f"### {fp}\n```\n{code}\n```"
         for fp, code in context.get("file_snippets", {}).items()

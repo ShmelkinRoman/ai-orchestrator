@@ -1,15 +1,14 @@
 import logging
 import subprocess
 from pathlib import Path
-from agents.llm import complete
-from config.settings import MODELS
+from agents.llm import complete, pick_model
 
 logger = logging.getLogger(__name__)
 
 
 def run(repo_path: str, changed_files: list[str], spec: str, diff: str):
     root = Path(repo_path)
-    model = MODELS["docs_agent"]
+    model = pick_model("docs")
     prompt = f"""You are a documentation writer.
 Given the following changes, update README if public API changed, update CHANGELOG.md, update AI_PROJECT_MAP.md if architecture changed.
 Output each file as:
