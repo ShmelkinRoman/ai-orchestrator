@@ -159,23 +159,26 @@ async def process_issue(issue) -> None:
 
     project.move_issue(num, node_id, "In Development")
     tg.update_task_status(num, title, "In Development")
-    await tg.set_pipeline_stage(num, "In Development — Qwen пишет код...")
 
-    aider_result = aider.run(str(repo_path), qwen_prompt or spec)
+    spec_lines = len((qwen_prompt or spec).splitlines())
+    dev_model = aider.pick_developer(risk=risk, spec_lines=spec_lines)
+    await tg.set_pipeline_stage(num, f"In Development — {dev_model} пишет код...")
+
+    aider_result = aider.run(str(repo_path), qwen_prompt or spec, model_alias=dev_model)
 
     if not aider_result["changed_files"]:
         project.move_issue(num, node_id, "Needs Clarification")
         tg.update_task_status(num, title, "No Changes")
-        stages["code"] = "no changes (Qwen made 0 edits)"
+        stages["code"] = f"no changes ({dev_model} made 0 edits)"
         await tg.send_task_summary(num, title, stages, llm.get_run_cost_report(),
-                                   error="Qwen не внёс никаких изменений. "
+                                   error=f"{dev_model} не внёс никаких изменений. "
                                          "Возможно, промпт слишком длинный или задача слишком сложная.")
         return
 
     aider.commit_changes(str(repo_path), f"feat: {title} #{num}")
     diff = aider_result["diff"]
     changed_files = aider_result["changed_files"]
-    stages["code"] = f"Qwen local ({len(changed_files)} files)"
+    stages["code"] = f"{dev_model} ({len(changed_files)} files)"
 
     # --- Step 6: Tests ---
     project.move_issue(num, node_id, "Tests Running")
@@ -188,7 +191,7 @@ async def process_issue(issue) -> None:
         fix_attempts += 1
         await tg.set_pipeline_stage(num, f"Tests Running — fix attempt {fix_attempts}...")
         fix_prompt = f"Fix test failures:\n{test_result['output'][:2000]}"
-        aider.run(str(repo_path), fix_prompt, changed_files)
+        aider.run(str(repo_path), fix_prompt, changed_files, model_alias=dev_model)
         aider.commit_changes(str(repo_path), f"fix: test fixes attempt {fix_attempts} #{num}")
         test_result = aider.run_tests(str(repo_path))
 
@@ -217,7 +220,8 @@ async def process_issue(issue) -> None:
     while review["verdict"] == "REQUEST_CHANGES" and review_attempts < 2:
         review_attempts += 1
         instructions = "\n".join(f"- {i}" for i in review["instructions_for_qwen"])
-        fix_result = aider.run(str(repo_path), f"Fix code review issues:\n{instructions}")
+        fix_result = aider.run(str(repo_path), f"Fix code review issues:\n{instructions}",
+                               model_alias=dev_model)
         if fix_result["changed_files"]:
             aider.commit_changes(str(repo_path), f"fix: review fixes #{num}")
             diff = fix_result["diff"]

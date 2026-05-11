@@ -1,8 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from agents.llm import complete
-from config.settings import MODELS
+from agents.llm import complete, pick_model
 
 logger = logging.getLogger(__name__)
 
@@ -10,9 +9,10 @@ _PROMPT = (Path(__file__).parent.parent / "prompts/intake.md").read_text()
 
 
 def run(issue_body: str) -> dict:
-    logger.info("Intake agent running")
+    model = pick_model("intake")
+    logger.info("Intake agent running with model %s", model)
     text = complete(
-        MODELS["intake_agent"],
+        model,
         [{"role": "system", "content": _PROMPT}, {"role": "user", "content": issue_body}],
         temperature=0.1,
     )

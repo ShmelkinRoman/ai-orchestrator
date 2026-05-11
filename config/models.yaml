@@ -1,8 +1,24 @@
-intake_agent:     qwen-local
-triage_agent:     qwen-local
-context_agent:    qwen-local
-architect_agent:  openrouter/anthropic/claude-sonnet-4-20250514
-reviewer_high:    openrouter/anthropic/claude-sonnet-4-20250514
-reviewer_medium:  openrouter/openai/gpt-4o-mini
-reviewer_low:     qwen-local
-docs_agent:       qwen-local
+# Multi-model routing config.
+# `pick_model(role, risk, project_confidential)` reads from this file.
+# Env vars: QWEN_ENABLED, PROJECT_CONFIDENTIAL (see config/settings.py).
+
+roles:
+  triage:           claude-haiku-4-5      # дёшево, быстро
+  intake:           claude-haiku-4-5
+  architect_low:    claude-sonnet-4-6     # low / medium risk
+  architect_high:   claude-opus-4-7       # high risk
+  developer:        claude-sonnet-4-6     # default cloud developer
+  reviewer_low:     claude-sonnet-4-6
+  reviewer_high:    claude-opus-4-7
+  docs:             claude-haiku-4-5
+
+# Локальный исполнитель (Qwen via Aider). Включается через QWEN_ENABLED=true.
+local_developer:
+  model:           qwen-local
+  fallback:        claude-sonnet-4-6
+  max_file_lines:  200                    # Qwen стабильно работает только до 200 строк
+
+# Дешёвый облачный исполнитель — разрешён только для non-confidential, low-risk.
+cheap_developer:
+  model:           deepseek-coder
+  use_when:        "risk == low and not project.confidential"

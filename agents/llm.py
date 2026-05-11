@@ -2,7 +2,10 @@
 import time
 import logging
 import litellm
-from config.settings import QWEN_API_BASE, OPENROUTER_API_KEY
+from config.settings import (
+    QWEN_API_BASE, OPENROUTER_API_KEY,
+    QWEN_ENABLED, PROJECT_CONFIDENTIAL, MODELS,
+)
 
 # Self-signed cert on Tailscale / local vLLM host — disable SSL verification globally
 if QWEN_API_BASE.startswith("https://"):
@@ -14,6 +17,28 @@ _OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
 _MODEL_MAP = {
     "qwen-local": ("openai/qwen", QWEN_API_BASE, "none"),
+    # Clean aliases used in config/models.yaml roles:
+    "claude-haiku-4-5": (
+        "openrouter/anthropic/claude-haiku-4.5",
+        _OPENROUTER_BASE,
+        OPENROUTER_API_KEY,
+    ),
+    "claude-sonnet-4-6": (
+        "openrouter/anthropic/claude-sonnet-4.6",
+        _OPENROUTER_BASE,
+        OPENROUTER_API_KEY,
+    ),
+    "claude-opus-4-7": (
+        "openrouter/anthropic/claude-opus-4",
+        _OPENROUTER_BASE,
+        OPENROUTER_API_KEY,
+    ),
+    "deepseek-coder": (
+        "openrouter/deepseek/deepseek-coder",
+        _OPENROUTER_BASE,
+        OPENROUTER_API_KEY,
+    ),
+    # Legacy long aliases kept for backward compatibility:
     "openrouter/anthropic/claude-sonnet-4-20250514": (
         "openrouter/anthropic/claude-sonnet-4.6",
         _OPENROUTER_BASE,
@@ -45,9 +70,11 @@ _TRANSIENT_ERRORS = (
 # Cost per 1M tokens (input/output) in USD — for comparison reporting
 _COST_PER_1M = {
     "openai/qwen":                             (0.0,   0.0),    # local, free
+    "openrouter/anthropic/claude-opus-4":      (15.0,  75.0),
     "openrouter/anthropic/claude-sonnet-4.6":  (3.0,   15.0),
     "openrouter/anthropic/claude-haiku-4.5":   (0.80,  4.0),
     "openrouter/openai/gpt-4o-mini":           (0.15,  0.60),
+    "openrouter/deepseek/deepseek-coder":      (0.14,  0.28),
     # hypothetical: what if Sonnet did this task instead
     "__sonnet_substitute__":                   (3.0,   15.0),
 }
@@ -106,6 +133,42 @@ def _resolve(alias: str) -> tuple[str, str | None, str | None]:
 
 def _is_qwen(alias: str) -> bool:
     return alias == "qwen-local"
+
+
+def pick_model(role: str, risk: str = "low",
+               project_confidential: bool | None = None) -> str:
+    """Resolve a role+risk pair to a concrete model alias.
+
+    role:
+        triage | intake | docs                  → fixed role
+        architect | reviewer                    → splits on risk into _high / _low
+        developer                               → cloud developer default
+        architect_low | architect_high | …      → explicit role key (passthrough)
+    risk: low | medium | high   (only architect/reviewer branch on it)
+    project_confidential: when False, low-risk developer may switch to cheap_developer.
+    """
+    if project_confidential is None:
+        project_confidential = PROJECT_CONFIDENTIAL
+
+    roles: dict = MODELS.get("roles", {})
+
+    if role in ("architect", "reviewer"):
+        key = f"{role}_high" if risk == "high" else f"{role}_low"
+        alias = roles.get(key)
+    else:
+        alias = roles.get(role)
+
+    if alias is None:
+        raise KeyError(f"pick_model: unknown role '{role}' (risk={risk})")
+
+    # Qwen disabled → fallback (covers the case where a role points at qwen-local).
+    if alias == "qwen-local" and not QWEN_ENABLED:
+        local = MODELS.get("local_developer", {})
+        fallback = local.get("fallback") or "claude-sonnet-4-6"
+        logger.info("QWEN_ENABLED=false → role '%s' uses fallback '%s'", role, fallback)
+        return fallback
+
+    return alias
 
 
 def complete(alias: str, messages: list[dict], temperature: float = 0.1,

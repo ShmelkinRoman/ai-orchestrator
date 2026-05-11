@@ -1,24 +1,15 @@
 import logging
 from pathlib import Path
-from agents.llm import complete
-from config.settings import MODELS
+from agents.llm import complete, pick_model
 
 logger = logging.getLogger(__name__)
 
 _PROMPT = (Path(__file__).parent.parent / "prompts/reviewer.md").read_text()
 
 
-def _pick_model(risk: str) -> str:
-    if risk == "high":
-        return MODELS["reviewer_high"]
-    elif risk == "medium":
-        return MODELS["reviewer_medium"]
-    return MODELS["reviewer_low"]
-
-
 def run(risk: str, issue_body: str, spec: str, diff: str,
         changed_files: list[str], test_output: str) -> dict:
-    model = _pick_model(risk)
+    model = pick_model("reviewer", risk=risk)
     user_content = f"""Issue:
 {issue_body}
 
