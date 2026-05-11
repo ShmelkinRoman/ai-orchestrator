@@ -1,9 +1,11 @@
-"""Read shared pipeline state written by the orchestrator."""
+"""Read/write shared pipeline state for the orchestrator and web panel."""
 import json
+import os
 from pathlib import Path
 
-COSTS_LOG = Path.home() / ".ai-orch-costs.jsonl"
-ACTIVE_FILE = Path.home() / ".ai-orch-active.json"
+_STATE_DIR = Path(os.getenv("AI_ORCH_STATE_DIR", str(Path.home())))
+COSTS_LOG = _STATE_DIR / ".ai-orch-costs.jsonl"
+ACTIVE_FILE = _STATE_DIR / ".ai-orch-active.json"
 
 
 def get_active_pipelines() -> list[dict]:
@@ -13,6 +15,25 @@ def get_active_pipelines() -> list[dict]:
         return json.loads(ACTIVE_FILE.read_text(encoding="utf-8"))
     except Exception:
         return []
+
+
+def write_active(entry: dict) -> None:
+    """Upsert pipeline entry (keyed by 'issue'). Safe to call from orchestrator."""
+    try:
+        entries = [e for e in get_active_pipelines() if e.get("issue") != entry.get("issue")]
+        entries.append(entry)
+        ACTIVE_FILE.write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def clear_active(issue_number: int) -> None:
+    """Remove pipeline entry when it finishes. Safe to call from orchestrator."""
+    try:
+        entries = [e for e in get_active_pipelines() if e.get("issue") != issue_number]
+        ACTIVE_FILE.write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def get_recent_runs(n: int = 10) -> list[dict]:

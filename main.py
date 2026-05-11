@@ -21,6 +21,7 @@ import runner.aider_runner as aider
 import runner.components as components_registry
 import httpx
 from config.settings import GITHUB_REPO, GITHUB_TOKEN, QWEN_API_BASE
+from web.state import write_active, clear_active
 
 QWEN_SERVED_NAME = "qwen"  # --served-model-name в vLLM / model-router
 
@@ -82,6 +83,16 @@ async def process_issue(issue) -> None:
     llm.reset_run_costs()
     stages: dict[str, str] = {}
 
+    import datetime
+    write_active({"issue": num, "title": title_raw, "step": "Intake",
+                  "status": "running", "started_at": datetime.datetime.now().isoformat(timespec="minutes")})
+    try:
+        await _process_issue_inner(issue, num, title_raw, body, node_id, stages)
+    finally:
+        clear_active(num)
+
+
+async def _process_issue_inner(issue, num, title_raw, body, node_id, stages) -> None:
     # --- Step 1: Intake ---
     await tg.send_task_started(num, title_raw)
     tg.update_task_status(num, title_raw, "Intake")
