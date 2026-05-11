@@ -29,3 +29,16 @@ with open(_models_path) as f:
 
 os.environ["OPENROUTER_API_KEY"] = OPENROUTER_API_KEY
 VERSION = "0.1.0"
+
+_env_path = Path(__file__).parent.parent / ".env"
+
+
+def is_qwen_enabled() -> bool:
+    """Read QWEN_ENABLED from .env on each call so UI toggles take effect without restart."""
+    if _env_path.exists():
+        for line in _env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("QWEN_ENABLED="):
+                val = line[len("QWEN_ENABLED="):].split("#")[0].strip().strip('"').strip("'")
+                return val.lower() == "true"
+    return os.getenv("QWEN_ENABLED", "true").lower() == "true"

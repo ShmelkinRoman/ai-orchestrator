@@ -64,11 +64,23 @@ app.include_router(logs.router)
 
 
 if __name__ == "__main__":
+    import logging
     import uvicorn
+
+    _token = os.getenv("WEBUI_TOKEN", "")
+    _host = os.getenv("WEBUI_HOST", "")
+    if not _token:
+        logging.warning(
+            "WEBUI_TOKEN is not set — web panel has no authentication. "
+            "Binding to 127.0.0.1 only."
+        )
+        _host = _host or "127.0.0.1"
+    else:
+        _host = _host or "0.0.0.0"
 
     uvicorn.run(
         "web.main:app",
-        host=os.getenv("WEBUI_HOST", "0.0.0.0"),
+        host=_host,
         port=int(os.getenv("WEBUI_PORT", "8080")),
         reload=False,
     )

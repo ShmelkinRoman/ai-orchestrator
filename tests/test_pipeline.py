@@ -91,10 +91,8 @@ def test_pick_model_unknown_role_raises():
 
 
 def test_pick_developer_qwen_when_low_risk_short_spec(monkeypatch):
-    import agents.llm as llm_mod
     import runner.aider_runner as runner_mod
-    monkeypatch.setattr(runner_mod, "QWEN_ENABLED", True)
-    monkeypatch.setattr(llm_mod, "QWEN_ENABLED", True)
+    monkeypatch.setattr(runner_mod, "is_qwen_enabled", lambda: True)
     assert runner_mod.pick_developer(risk="low",
                                      project_confidential=True,
                                      spec_lines=50) == "qwen-local"
@@ -102,7 +100,7 @@ def test_pick_developer_qwen_when_low_risk_short_spec(monkeypatch):
 
 def test_pick_developer_fallback_when_qwen_disabled(monkeypatch):
     import runner.aider_runner as runner_mod
-    monkeypatch.setattr(runner_mod, "QWEN_ENABLED", False)
+    monkeypatch.setattr(runner_mod, "is_qwen_enabled", lambda: False)
     choice = runner_mod.pick_developer(risk="low",
                                        project_confidential=True,
                                        spec_lines=50)
@@ -111,7 +109,7 @@ def test_pick_developer_fallback_when_qwen_disabled(monkeypatch):
 
 def test_pick_developer_deepseek_for_nonconfidential_low(monkeypatch):
     import runner.aider_runner as runner_mod
-    monkeypatch.setattr(runner_mod, "QWEN_ENABLED", False)
+    monkeypatch.setattr(runner_mod, "is_qwen_enabled", lambda: False)
     choice = runner_mod.pick_developer(risk="low",
                                        project_confidential=False,
                                        spec_lines=50)
@@ -120,7 +118,7 @@ def test_pick_developer_deepseek_for_nonconfidential_low(monkeypatch):
 
 def test_pick_developer_sonnet_for_high_risk(monkeypatch):
     import runner.aider_runner as runner_mod
-    monkeypatch.setattr(runner_mod, "QWEN_ENABLED", True)
+    monkeypatch.setattr(runner_mod, "is_qwen_enabled", lambda: True)
     choice = runner_mod.pick_developer(risk="high",
                                        project_confidential=False,
                                        spec_lines=50)
@@ -129,7 +127,7 @@ def test_pick_developer_sonnet_for_high_risk(monkeypatch):
 
 def test_pick_developer_sonnet_when_spec_too_large(monkeypatch):
     import runner.aider_runner as runner_mod
-    monkeypatch.setattr(runner_mod, "QWEN_ENABLED", True)
+    monkeypatch.setattr(runner_mod, "is_qwen_enabled", lambda: True)
     choice = runner_mod.pick_developer(risk="low",
                                        project_confidential=True,
                                        spec_lines=500)
