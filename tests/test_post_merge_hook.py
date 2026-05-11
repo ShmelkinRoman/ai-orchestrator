@@ -36,34 +36,34 @@ def test_reindexes_when_kb_enabled(monkeypatch, tmp_path):
     import runner.components as comp_mod
     import config.settings as settings_mod
     import agents.indexer as indexer_mod
-    reindexed = []
+    indexed = []
     monkeypatch.setattr(comp_mod, "generate", lambda path: True)
     monkeypatch.setattr(settings_mod, "KB_ENABLED", True)
     monkeypatch.setattr(settings_mod, "GITHUB_REPO", "test/repo")
-    monkeypatch.setattr(indexer_mod, "reindex_changed",
-                        lambda rp, proj, commit: reindexed.append((rp, proj, commit)) or 1)
+    monkeypatch.setattr(indexer_mod, "index_file",
+                        lambda rp, f, proj: indexed.append((rp, f, proj)) or 1)
 
     from agents.post_merge_hook import run
     run(str(tmp_path), ["agents/foo.py"])
 
-    assert len(reindexed) == 1
-    assert reindexed[0] == (str(tmp_path), "test/repo", "HEAD~1")
+    assert len(indexed) == 1
+    assert indexed[0] == (str(tmp_path), "agents/foo.py", "test/repo")
 
 
 def test_skips_reindex_when_kb_disabled(monkeypatch, tmp_path):
     import runner.components as comp_mod
     import config.settings as settings_mod
     import agents.indexer as indexer_mod
-    reindexed = []
+    indexed = []
     monkeypatch.setattr(comp_mod, "generate", lambda path: True)
     monkeypatch.setattr(settings_mod, "KB_ENABLED", False)
-    monkeypatch.setattr(indexer_mod, "reindex_changed",
-                        lambda rp, proj, commit: reindexed.append((rp, proj, commit)) or 1)
+    monkeypatch.setattr(indexer_mod, "index_file",
+                        lambda rp, f, proj: indexed.append((rp, f, proj)) or 1)
 
     from agents.post_merge_hook import run
     run(str(tmp_path), ["agents/foo.py"])
 
-    assert len(reindexed) == 0
+    assert len(indexed) == 0
 
 
 def test_swallows_components_exception(monkeypatch, tmp_path):
@@ -83,8 +83,8 @@ def test_swallows_reindex_exception(monkeypatch, tmp_path):
     monkeypatch.setattr(comp_mod, "generate", lambda path: True)
     monkeypatch.setattr(settings_mod, "KB_ENABLED", True)
     monkeypatch.setattr(settings_mod, "GITHUB_REPO", "test/repo")
-    monkeypatch.setattr(indexer_mod, "reindex_changed",
-                        lambda rp, proj, commit: (_ for _ in ()).throw(RuntimeError("kb down")))
+    monkeypatch.setattr(indexer_mod, "index_file",
+                        lambda rp, f, proj: (_ for _ in ()).throw(RuntimeError("kb down")))
 
     from agents.post_merge_hook import run
     run(str(tmp_path), ["foo.py"])  # must not raise

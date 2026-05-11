@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from config.settings import (
     QWEN_API_BASE, OPENROUTER_API_KEY,
-    QWEN_ENABLED, PROJECT_CONFIDENTIAL, MODELS,
+    PROJECT_CONFIDENTIAL, MODELS, is_qwen_enabled,
 )
 
 logger = logging.getLogger(__name__)
@@ -19,24 +19,21 @@ _DEVELOPER_PROFILES = {
     "qwen-local": {
         "aider_model": "openai/qwen",
         "api_base": QWEN_API_BASE,
-        "api_key": "none",
         "extra_flags": ["--no-verify-ssl", "--no-show-model-warnings",
                         "--edit-format", "whole", "--map-tokens", "0"],
-        "env": {},
+        "env": {"OPENAI_API_KEY": "none"},
     },
     "claude-sonnet-4-6": {
         "aider_model": "openrouter/anthropic/claude-sonnet-4.6",
         "api_base": _OPENROUTER_BASE,
-        "api_key": OPENROUTER_API_KEY,
         "extra_flags": ["--map-tokens", "0", "--edit-format", "diff"],
-        "env": {"OPENROUTER_API_KEY": OPENROUTER_API_KEY},
+        "env": {"OPENAI_API_KEY": OPENROUTER_API_KEY, "OPENROUTER_API_KEY": OPENROUTER_API_KEY},
     },
     "deepseek-coder": {
         "aider_model": "openrouter/deepseek/deepseek-coder",
         "api_base": _OPENROUTER_BASE,
-        "api_key": OPENROUTER_API_KEY,
         "extra_flags": ["--map-tokens", "0", "--edit-format", "diff"],
-        "env": {"OPENROUTER_API_KEY": OPENROUTER_API_KEY},
+        "env": {"OPENAI_API_KEY": OPENROUTER_API_KEY, "OPENROUTER_API_KEY": OPENROUTER_API_KEY},
     },
 }
 
@@ -61,7 +58,7 @@ def pick_developer(risk: str, project_confidential: bool | None = None,
     cheap = MODELS.get("cheap_developer", {}) or {}
     cheap_model = cheap.get("model", "deepseek-coder")
 
-    if QWEN_ENABLED and risk == "low" and spec_lines < max_lines:
+    if is_qwen_enabled() and risk == "low" and spec_lines < max_lines:
         logger.info("pick_developer: qwen-local (risk=%s, spec_lines=%d)", risk, spec_lines)
         return local_model
 
@@ -70,7 +67,7 @@ def pick_developer(risk: str, project_confidential: bool | None = None,
         return cheap_model
 
     logger.info("pick_developer: %s (default, risk=%s, qwen_enabled=%s)",
-                fallback, risk, QWEN_ENABLED)
+                fallback, risk, is_qwen_enabled())
     return fallback
 
 
@@ -89,7 +86,6 @@ def run(repo_path: str, prompt: str, allowed_files: list[str] | None = None,
         AIDER_CMD,
         "--model", profile["aider_model"],
         "--openai-api-base", profile["api_base"],
-        "--openai-api-key", profile["api_key"],
         "--no-auto-commits",
         "--yes",
         *profile["extra_flags"],

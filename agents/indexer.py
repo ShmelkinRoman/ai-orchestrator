@@ -1,4 +1,5 @@
 import logging
+import os
 import subprocess
 from pathlib import Path
 
@@ -7,9 +8,18 @@ from agents.knowledge import embed, init_db, upsert_chunk
 logger = logging.getLogger(__name__)
 
 _EXTENSIONS = {".py", ".ts", ".js", ".tsx", ".jsx", ".go", ".java"}
-_SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache"}
+_SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", "secrets"}
+_SKIP_SUFFIXES = {".tfstate", ".pem", ".key"}
 _CHUNK_LINES = 100
 _MAX_FILE_BYTES = 100_000
+
+
+def _should_skip_file(fp: Path) -> bool:
+    if fp.name.startswith(".env"):
+        return True
+    if fp.suffix in _SKIP_SUFFIXES:
+        return True
+    return False
 
 
 def _chunks(text: str) -> list[str]:
@@ -51,6 +61,12 @@ def index_file(repo_path: str, file_path: str, project_id: str) -> int:
 
 def index_all(repo_path: str, project_id: str) -> int:
     """Full index of all code files in repo. Returns total chunks stored."""
+    if os.getenv("PROJECT_CONFIDENTIAL", "true").lower() == "true":
+        logger.warning(
+            "index_all skipped: PROJECT_CONFIDENTIAL=true — indexing would send code to OpenRouter"
+        )
+        return 0
+
     if not init_db():
         logger.warning("KB not available — skipping index_all")
         return 0
@@ -62,6 +78,8 @@ def index_all(repo_path: str, project_id: str) -> int:
             continue
         rel = str(fp.relative_to(root))
         if any(part in _SKIP_DIRS for part in fp.parts):
+            continue
+        if _should_skip_file(fp):
             continue
         total += index_file(repo_path, rel, project_id)
 
