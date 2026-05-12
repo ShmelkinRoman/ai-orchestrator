@@ -1,4 +1,5 @@
 """Simple cookie-based auth for the web panel."""
+import hmac
 import os
 from fastapi import Request
 from fastapi.responses import RedirectResponse
@@ -15,15 +16,15 @@ def is_authenticated(request: Request) -> bool:
     token = _token()
     if not token:
         return True
-    return request.cookies.get(_COOKIE) == token
+    return hmac.compare_digest(request.cookies.get(_COOKIE, ""), token)
 
 
 async def handle_login(request: Request, templates: Jinja2Templates):
     form = await request.form()
     submitted = form.get("token", "")
-    if submitted == _token():
+    if hmac.compare_digest(submitted, _token()):
         resp = RedirectResponse(url="/", status_code=302)
-        resp.set_cookie(_COOKIE, submitted, httponly=True, samesite="lax")
+        resp.set_cookie(_COOKIE, submitted, httponly=True, samesite="strict")
         return resp
     return templates.TemplateResponse(
         "login.html",
