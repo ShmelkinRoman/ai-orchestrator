@@ -14,7 +14,6 @@ def run(issue_body: str) -> dict:
     text = complete(
         model,
         [{"role": "system", "content": _PROMPT}, {"role": "user", "content": issue_body}],
-        temperature=0.1,
     )
     if text.startswith("```"):
         text = text.split("```")[1]

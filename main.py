@@ -1,5 +1,6 @@
 """AI-SDLC Orchestrator — main entry point."""
 import asyncio
+import json
 import logging
 import re
 import subprocess
@@ -21,6 +22,7 @@ import runner.aider_runner as aider
 import runner.components as components_registry
 import httpx
 from config.settings import GITHUB_REPO, GITHUB_TOKEN, QWEN_API_BASE
+from web.state import ACTIVE_FILE
 
 QWEN_SERVED_NAME = "qwen"  # --served-model-name в vLLM / model-router
 
@@ -82,8 +84,26 @@ async def process_issue(issue) -> None:
     llm.reset_run_costs()
     stages: dict[str, str] = {}
 
+    def _set_stage(stage: str) -> None:
+        try:
+            ACTIVE_FILE.write_text(
+                json.dumps([{"issue": num, "title": title_raw, "stage": stage}]),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    try:
+        ACTIVE_FILE.write_text(
+            json.dumps([{"issue": num, "title": title_raw, "stage": "starting"}]),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
     # --- Step 1: Intake ---
     await tg.send_task_started(num, title_raw)
+    _set_stage("Intake")
     tg.update_task_status(num, title_raw, "Intake")
     project.move_issue(num, node_id, "Triage")
 
@@ -109,6 +129,7 @@ async def process_issue(issue) -> None:
         return
 
     project.move_issue(num, node_id, "Technical Spec")
+    _set_stage("Technical Spec")
 
     # --- Step 3: Context ---
     repo_path = _clone_repo(num)
@@ -122,6 +143,7 @@ async def process_issue(issue) -> None:
 
     # --- Step 4b: Spec Approval ---
     project.move_issue(num, node_id, "Awaiting Spec Approval")
+    _set_stage("Awaiting Spec Approval")
     tg.update_task_status(num, title, "Awaiting Spec Approval")
 
     spec_clarified = False
@@ -148,6 +170,7 @@ async def process_issue(issue) -> None:
         gh.add_comment(issue, f"## 🏗️ Обновлённый Technical Spec\n\n{spec}")
 
     project.move_issue(num, node_id, "Ready for Dev")
+    _set_stage("Ready for Dev")
 
     # --- Step 5: Aider + Qwen ---
     branch = f"ai/{num}-{_slugify(title)}"
@@ -159,6 +182,7 @@ async def process_issue(issue) -> None:
     subprocess.run(["git", "checkout", "-b", branch], cwd=str(repo_path), capture_output=True)
 
     project.move_issue(num, node_id, "In Development")
+    _set_stage("In Development")
     tg.update_task_status(num, title, "In Development")
 
     spec_lines = len((qwen_prompt or spec).splitlines())
@@ -238,6 +262,7 @@ async def process_issue(issue) -> None:
 
     stages["review"] = review["verdict"]
     project.move_issue(num, node_id, "AI Review")
+    _set_stage("AI Review")
 
     # --- Step 8: PR ---
     criteria_list = "\n".join(
@@ -277,6 +302,7 @@ Closes #{num}
     pr_url = pr.html_url
 
     project.move_issue(num, node_id, "Human Approval")
+    _set_stage("Awaiting Approval")
     tg.update_task_status(num, title, "Human Approval")
 
     # --- Step 9: Human Approval ---
@@ -316,6 +342,7 @@ Closes #{num}
             except subprocess.CalledProcessError:
                 stages["docs"] = "skipped"
         project.move_issue(num, node_id, "Docs Updated")
+        _set_stage("Docs Updated")
         tg.update_task_status(num, title, "Docs Updated")
 
     elif decision == "reject":
@@ -331,6 +358,10 @@ Closes #{num}
         tg.update_task_status(num, title, "Needs Clarification")
         stages["merge"] = "rework"
 
+    try:
+        ACTIVE_FILE.write_text("[]", encoding="utf-8")
+    except Exception:
+        pass
     await tg.send_task_summary(num, title, stages, llm.get_run_cost_report())
 
 

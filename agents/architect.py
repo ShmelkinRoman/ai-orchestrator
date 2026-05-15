@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from agents.llm import complete, pick_model
+from agents.llm import complete, pick_model, get_role_params
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +35,12 @@ Relevant files: {', '.join(context.get('relevant_files', [])) or 'none'}
 
 {snippets}{components_block}
 """
+    params = get_role_params("architect", risk=risk)
     logger.info("Architect agent running with model %s", model)
     spec = complete(
         model,
         [{"role": "system", "content": _PROMPT}, {"role": "user", "content": user_content.strip()}],
-        temperature=0.2,
-        max_tokens=4096,
+        **params,
     )
     logger.info("Architect spec generated (%d chars)", len(spec))
     return spec

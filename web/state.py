@@ -1,9 +1,11 @@
 """Read shared pipeline state written by the orchestrator."""
 import json
+import os
 from pathlib import Path
 
-COSTS_LOG = Path.home() / ".ai-orch-costs.jsonl"
-ACTIVE_FILE = Path.home() / ".ai-orch-active.json"
+_STATE_DIR = Path(os.getenv("AI_ORCH_STATE_DIR", str(Path.home())))
+COSTS_LOG = _STATE_DIR / ".ai-orch-costs.jsonl"
+ACTIVE_FILE = _STATE_DIR / ".ai-orch-active.json"
 
 
 def get_active_pipelines() -> list[dict]:
@@ -32,7 +34,7 @@ def get_recent_runs(n: int = 10) -> list[dict]:
 def get_run_by_id(run_id: str) -> dict | None:
     if not COSTS_LOG.exists():
         return None
-    for line in COSTS_LOG.read_text(encoding="utf-8").splitlines():
+    for line in reversed(COSTS_LOG.read_text(encoding="utf-8").splitlines()):
         line = line.strip()
         if not line:
             continue

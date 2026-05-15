@@ -4,7 +4,7 @@ import logging
 import litellm
 from config.settings import (
     QWEN_API_BASE, OPENROUTER_API_KEY,
-    QWEN_ENABLED, PROJECT_CONFIDENTIAL, MODELS,
+    QWEN_ENABLED, PROJECT_CONFIDENTIAL, MODELS, is_qwen_enabled,
 )
 
 # Self-signed cert on Tailscale / local vLLM host — disable SSL verification globally
@@ -29,12 +29,13 @@ _MODEL_MAP = {
         OPENROUTER_API_KEY,
     ),
     "claude-opus-4-7": (
-        "openrouter/anthropic/claude-opus-4",
+        "openrouter/anthropic/claude-opus-4.7",
         _OPENROUTER_BASE,
         OPENROUTER_API_KEY,
     ),
+    # deepseek-coder was removed from OpenRouter; deepseek-chat is the current coding model
     "deepseek-coder": (
-        "openrouter/deepseek/deepseek-coder",
+        "openrouter/deepseek/deepseek-chat",
         _OPENROUTER_BASE,
         OPENROUTER_API_KEY,
     ),
@@ -56,8 +57,13 @@ _MODEL_MAP = {
     ),
 }
 
-# Fallback for qwen-local when server is down
-_QWEN_FALLBACK = ("openrouter/anthropic/claude-haiku-4.5", _OPENROUTER_BASE, OPENROUTER_API_KEY)
+
+# Fallback for qwen-local when server is down — resolved dynamically from models.yaml
+def _qwen_fallback() -> tuple[str, str, str]:
+    """Return the (model, api_base, api_key) tuple for the qwen fallback model."""
+    alias = MODELS.get("local_developer", {}).get("fallback") or "claude-sonnet-4-6"
+    return _resolve(alias)
+
 
 _TRANSIENT_ERRORS = (
     litellm.BadGatewayError,
@@ -70,11 +76,11 @@ _TRANSIENT_ERRORS = (
 # Cost per 1M tokens (input/output) in USD — for comparison reporting
 _COST_PER_1M = {
     "openai/qwen":                             (0.0,   0.0),    # local, free
-    "openrouter/anthropic/claude-opus-4":      (15.0,  75.0),
+    "openrouter/anthropic/claude-opus-4.7":    (15.0,  75.0),
     "openrouter/anthropic/claude-sonnet-4.6":  (3.0,   15.0),
     "openrouter/anthropic/claude-haiku-4.5":   (0.80,  4.0),
     "openrouter/openai/gpt-4o-mini":           (0.15,  0.60),
-    "openrouter/deepseek/deepseek-coder":      (0.14,  0.28),
+    "openrouter/deepseek/deepseek-chat":       (0.14,  0.28),
     # hypothetical: what if Sonnet did this task instead
     "__sonnet_substitute__":                   (3.0,   15.0),
 }
@@ -161,6 +167,10 @@ def pick_model(role: str, risk: str = "low",
     if alias is None:
         raise KeyError(f"pick_model: unknown role '{role}' (risk={risk})")
 
+    # Dict form: extract model string
+    if isinstance(alias, dict):
+        alias = alias["model"]
+
     # Qwen disabled → fallback (covers the case where a role points at qwen-local).
     if alias == "qwen-local" and not QWEN_ENABLED:
         local = MODELS.get("local_developer", {})
@@ -171,17 +181,68 @@ def pick_model(role: str, risk: str = "low",
     return alias
 
 
+def get_role_params(role: str, risk: str = "low") -> dict:
+    """Return per-role LLM kwargs (temperature, max_tokens, …) from yaml,
+    or {} if the role is in string form. Mirrors the role/risk dispatch in pick_model.
+    Never returns 'model' — that field is stripped."""
+    roles: dict = MODELS.get("roles", {})
+
+    if role in ("architect", "reviewer"):
+        key = f"{role}_high" if risk == "high" else f"{role}_low"
+        entry = roles.get(key)
+    else:
+        entry = roles.get(role)
+
+    if not isinstance(entry, dict):
+        return {}
+
+    return {k: v for k, v in entry.items() if k != "model"}
+
+
+def pick_developer(risk: str, project_confidential: bool | None = None,
+                   spec_lines: int = 0) -> str:
+    """S4: unified with pick_model in agents/llm. Choose code-executor alias.
+
+    Rules:
+      1. Qwen-local — only when enabled, risk=low, spec ≤ max_file_lines.
+      2. DeepSeek   — non-confidential + risk=low (cheap cloud path).
+      3. Sonnet-4.6 — default fallback.
+    """
+    if project_confidential is None:
+        project_confidential = PROJECT_CONFIDENTIAL
+
+    local = MODELS.get("local_developer", {}) or {}
+    max_lines = int(local.get("max_file_lines", 200))
+    local_model = local.get("model", "qwen-local")
+    fallback = local.get("fallback", "claude-sonnet-4-6")
+
+    cheap = MODELS.get("cheap_developer", {}) or {}
+    cheap_model = cheap.get("model", "deepseek-coder")
+
+    if is_qwen_enabled() and risk == "low" and spec_lines < max_lines:
+        logger.info("pick_developer: qwen-local (risk=%s, spec_lines=%d)", risk, spec_lines)
+        return local_model
+
+    if not project_confidential and risk == "low":
+        logger.info("pick_developer: %s (non-confidential, risk=low)", cheap_model)
+        return cheap_model
+
+    logger.info("pick_developer: %s (default, risk=%s, qwen_enabled=%s)",
+                fallback, risk, is_qwen_enabled())
+    return fallback
+
+
 def complete(alias: str, messages: list[dict], temperature: float = 0.1,
              max_tokens: int = 4096, retries: int = 3) -> str:
     if _is_qwen(alias) and _force_haiku:
-        logger.info("Force-haiku active: routing '%s' → haiku fallback", alias)
-        fb_model, fb_base, fb_key = _QWEN_FALLBACK
+        logger.info("Force-haiku active: routing '%s' → qwen-fallback", alias)
+        fb_model, fb_base, fb_key = _qwen_fallback()
         resp = litellm.completion(
             model=fb_model, messages=messages, temperature=temperature,
             max_tokens=max_tokens, api_base=fb_base, api_key=fb_key,
         )
         u = resp.usage
-        _record_cost(f"{alias}(forced-haiku)", fb_model, u.prompt_tokens, u.completion_tokens)
+        _record_cost(f"{alias}(qwen-fallback)", fb_model, u.prompt_tokens, u.completion_tokens)
         return resp.choices[0].message.content.strip()
 
     model, api_base, api_key = _resolve(alias)
@@ -217,14 +278,14 @@ def complete(alias: str, messages: list[dict], temperature: float = 0.1,
 
     # Qwen exhausted — try fallback via OpenRouter
     if _is_qwen(alias):
-        logger.warning("Qwen unreachable after %d attempts, using haiku fallback", retries)
-        fb_model, fb_base, fb_key = _QWEN_FALLBACK
+        logger.warning("Qwen unreachable after %d attempts, using qwen-fallback", retries)
+        fb_model, fb_base, fb_key = _qwen_fallback()
         resp = litellm.completion(
             model=fb_model, messages=messages, temperature=temperature,
             max_tokens=max_tokens, api_base=fb_base, api_key=fb_key,
         )
         u = resp.usage
-        _record_cost(f"{alias}(haiku-fallback)", fb_model, u.prompt_tokens, u.completion_tokens)
+        _record_cost(f"{alias}(qwen-fallback)", fb_model, u.prompt_tokens, u.completion_tokens)
         return resp.choices[0].message.content.strip()
 
     raise last_exc

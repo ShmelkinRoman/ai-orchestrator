@@ -23,7 +23,7 @@ Changed files: {', '.join(changed_files)}
 Diff (truncated):
 {diff[:3000]}
 """
-    text = complete(model, [{"role": "user", "content": prompt}], temperature=0.1)
+    text = complete(model, [{"role": "user", "content": prompt}])
     _apply_doc_updates(root, text)
     logger.info("Docs agent completed")
 

@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from agents.llm import complete, pick_model
+from agents.llm import complete, pick_model, get_role_params
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +10,7 @@ _PROMPT = (Path(__file__).parent.parent / "prompts/reviewer.md").read_text()
 def run(risk: str, issue_body: str, spec: str, diff: str,
         changed_files: list[str], test_output: str) -> dict:
     model = pick_model("reviewer", risk=risk)
+    params = get_role_params("reviewer", risk=risk)
     user_content = f"""Issue:
 {issue_body}
 
@@ -30,8 +31,7 @@ Test output:
     text = complete(
         model,
         [{"role": "system", "content": _PROMPT}, {"role": "user", "content": user_content.strip()}],
-        temperature=0.1,
-        max_tokens=2048,
+        **params,
     )
     return _parse_review(text)
 
