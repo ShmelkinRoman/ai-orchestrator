@@ -256,6 +256,41 @@ def test_issue_text_with_comments_no_comments():
     assert "Комментарии" not in result
 
 
+def test_changed_py_files_filters_correctly(tmp_path):
+    """_changed_py_files returns only existing .py files; excludes non-.py and missing files."""
+    from runner.aider_runner import _changed_py_files
+
+    # Create real files on disk
+    (tmp_path / "foo.py").write_text("x = 1\n")
+    (tmp_path / "bar.py").write_text("y = 2\n")
+    (tmp_path / "index.html").write_text("<html/>\n")
+
+    changed = [
+        "foo.py",          # exists, .py — should be included
+        "bar.py",          # exists, .py — should be included
+        "index.html",      # exists, not .py — excluded
+        "ghost.py",        # .py but does NOT exist on disk — excluded
+        "missing.html",    # neither .py nor existing — excluded
+    ]
+
+    result = _changed_py_files(str(tmp_path), changed)
+    assert result == ["foo.py", "bar.py"]
+
+
+def test_changed_py_files_empty_input(tmp_path):
+    """_changed_py_files with an empty list returns an empty list."""
+    from runner.aider_runner import _changed_py_files
+    assert _changed_py_files(str(tmp_path), []) == []
+
+
+def test_changed_py_files_no_py_files(tmp_path):
+    """_changed_py_files returns empty list when no .py files are present in changed list."""
+    from runner.aider_runner import _changed_py_files
+    (tmp_path / "styles.css").write_text("body {}\n")
+    result = _changed_py_files(str(tmp_path), ["styles.css", "README.md"])
+    assert result == []
+
+
 def test_validate_models_accepts_string_and_dict_roles():
     from config.settings import _validate_models
     import pytest
