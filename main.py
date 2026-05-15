@@ -251,7 +251,7 @@ async def process_issue(issue) -> None:
     tg.update_task_status(num, title, "Tests Running")
     await tg.set_pipeline_stage(num, "Tests Running — flake8 + pytest...")
 
-    test_result = aider.run_tests(str(repo_path))
+    test_result = aider.run_tests(str(repo_path), changed_files)
     fix_attempts = 0
     while not test_result["passed"] and fix_attempts < 2:
         fix_attempts += 1
@@ -259,7 +259,7 @@ async def process_issue(issue) -> None:
         fix_prompt = f"Fix test failures:\n{test_result['output'][:2000]}"
         aider.run(str(repo_path), fix_prompt, changed_files, model_alias=dev_model)
         aider.commit_changes(str(repo_path), f"fix: test fixes attempt {fix_attempts} #{num}")
-        test_result = aider.run_tests(str(repo_path))
+        test_result = aider.run_tests(str(repo_path), changed_files)
 
     if not test_result["passed"]:
         project.move_issue(num, node_id, "Needs Clarification")
