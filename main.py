@@ -21,7 +21,7 @@ import notifications.telegram as tg
 import runner.aider_runner as aider
 import runner.components as components_registry
 import httpx
-from config.settings import GITHUB_REPO, GITHUB_TOKEN, QWEN_API_BASE
+from config.settings import GITHUB_REPO, GITHUB_TOKEN, QWEN_API_BASE, is_qwen_enabled
 from web.state import ACTIVE_FILE
 
 QWEN_SERVED_NAME = "qwen"  # --served-model-name в vLLM / model-router
@@ -443,9 +443,12 @@ async def main_loop():
     gh.ensure_labels()
     await tg.start_polling()
 
-    if not await _ensure_qwen_ready():
-        await tg.send_message("Оркестратор остановлен по решению оператора.")
-        return
+    if is_qwen_enabled():
+        if not await _ensure_qwen_ready():
+            await tg.send_message("Оркестратор остановлен по решению оператора.")
+            return
+    else:
+        logger.info("QWEN_ENABLED=false — проверка Qwen пропущена, исполнители идут через облако")
 
     try:
         issues = gh.get_ai_ready_issues()

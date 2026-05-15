@@ -24,8 +24,12 @@ def _normalize_proxy(proxy: str | None) -> str | None:
 def _make_app() -> Application:
     builder = Application.builder().token(TELEGRAM_BOT_TOKEN)
     proxy = _normalize_proxy(TELEGRAM_PROXY)
-    # Large pool: poller + pipeline sends run concurrently, default pool causes PoolTimeout
-    request = HTTPXRequest(connection_pool_size=16, proxy=proxy)
+    # Large pool: poller + pipeline sends run concurrently, default pool causes PoolTimeout.
+    # Explicit timeouts: a stalled proxy must fail fast, not hang the orchestrator.
+    request = HTTPXRequest(
+        connection_pool_size=16, proxy=proxy,
+        connect_timeout=10.0, read_timeout=15.0, write_timeout=15.0, pool_timeout=5.0,
+    )
     builder = builder.request(request)
     return builder.build()
 
@@ -35,7 +39,10 @@ def _safe_html(text: str) -> str:
 
 
 async def send_message(text: str):
-    await _app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text, parse_mode="HTML")
+    try:
+        await _app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text, parse_mode="HTML")
+    except Exception as e:
+        logger.warning("Telegram send_message failed (ignored): %s", e)
 
 
 def _issue_link(num: int, title: str) -> str:
