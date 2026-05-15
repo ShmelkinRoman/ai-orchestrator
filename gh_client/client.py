@@ -39,6 +39,10 @@ def add_comment(issue, body: str):
     return issue.create_comment(body)
 
 
+def get_comments(issue) -> list:
+    return list(issue.get_comments())
+
+
 def delete_branch(branch_name: str):
     try:
         _repo.get_git_ref(f"heads/{branch_name}").delete()

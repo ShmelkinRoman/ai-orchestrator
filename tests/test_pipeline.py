@@ -216,6 +216,46 @@ def test_version_constant():
     assert VERSION == "0.1.0"
 
 
+def test_issue_text_with_comments():
+    """_issue_text_with_comments combines title, body and comments without hitting the network."""
+    from types import SimpleNamespace
+    from main import _issue_text_with_comments
+
+    fake_comment_1 = SimpleNamespace(body="Ответ на первый вопрос")
+    fake_comment_2 = SimpleNamespace(body="Ответ на второй вопрос")
+
+    class FakeIssue:
+        title = "Add feature X"
+        body = "As a user I want feature X"
+
+        def get_comments(self):
+            return [fake_comment_1, fake_comment_2]
+
+    result = _issue_text_with_comments(FakeIssue())
+    assert "Title: Add feature X" in result
+    assert "As a user I want feature X" in result
+    assert "Ответ на первый вопрос" in result
+    assert "Ответ на второй вопрос" in result
+    assert "Комментарии" in result
+
+
+def test_issue_text_with_comments_no_comments():
+    """_issue_text_with_comments works when there are no comments."""
+    from main import _issue_text_with_comments
+
+    class FakeIssueNoComments:
+        title = "Simple issue"
+        body = "Just a description"
+
+        def get_comments(self):
+            return []
+
+    result = _issue_text_with_comments(FakeIssueNoComments())
+    assert "Title: Simple issue" in result
+    assert "Just a description" in result
+    assert "Комментарии" not in result
+
+
 def test_validate_models_accepts_string_and_dict_roles():
     from config.settings import _validate_models
     import pytest

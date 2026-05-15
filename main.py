@@ -66,6 +66,16 @@ def _slugify(text: str) -> str:
     return text[:40].strip("-")
 
 
+def _issue_text_with_comments(issue) -> str:
+    """Issue body plus all comments — used to feed clarification answers back into intake."""
+    parts = [f"Title: {issue.title}", issue.body or ""]
+    comments = gh.get_comments(issue)
+    if comments:
+        parts.append("## Комментарии (уточнения):")
+        parts.extend(c.body for c in comments)
+    return "\n\n".join(parts)
+
+
 def _extract_keywords(intake_result: dict) -> list[str]:
     story = intake_result.get("user_story", "")
     title = intake_result.get("title", "")
@@ -118,14 +128,45 @@ async def process_issue(issue) -> None:
     gh.add_label(issue, "ai-in-progress")
     gh.add_label(issue, f"risk-{risk}")
 
-    if triage["needs_clarification"]:
-        project.move_issue(num, node_id, "Needs Clarification")
+    clar_attempts = 0
+    while triage["needs_clarification"] and clar_attempts < 3:
+        clar_attempts += 1
         questions = "\n".join(f"- {q}" for q in triage["clarification_questions"])
+        project.move_issue(num, node_id, "Needs Clarification")
         gh.add_comment(issue, f"❓ **Нужны уточнения:**\n{questions}")
         tg.update_task_status(num, title, "Needs Clarification")
-        stages["spec"] = "needs clarification"
-        await tg.send_task_summary(num, title, stages, llm.get_run_cost_report(),
-                                   error=f"Нужны уточнения:\n{questions}")
+
+        action = await tg.send_clarification_request(title, questions, num)
+
+        if action == "cancel":
+            project.move_issue(num, node_id, "Backlog")
+            gh.remove_label(issue, "ai-in-progress")
+            gh.add_label(issue, "ai-ready")
+            tg.update_task_status(num, title, "Cancelled")
+            stages["spec"] = "cancelled"
+            await tg.send_task_summary(num, title, stages, llm.get_run_cost_report())
+            return
+
+        # action == "answered": refresh issue to pick up the user's GitHub comments
+        issue = gh.get_issue(num)
+        intake = intake_agent.run(_issue_text_with_comments(issue))
+        triage = triage_agent.run(intake)
+        title = intake.get("title", title_raw)
+
+        old_risk = risk
+        risk = triage["risk"]
+        if risk != old_risk:
+            gh.remove_label(issue, f"risk-{old_risk}")
+            gh.add_label(issue, f"risk-{risk}")
+
+    if triage["needs_clarification"]:
+        # Still unresolved after 3 rounds
+        project.move_issue(num, node_id, "Needs Clarification")
+        stages["spec"] = "needs clarification (не разрешено за 3 раунда)"
+        await tg.send_task_summary(
+            num, title, stages, llm.get_run_cost_report(),
+            error="Задача требует уточнений, но не была разрешена за 3 раунда переписки."
+        )
         return
 
     project.move_issue(num, node_id, "Technical Spec")
