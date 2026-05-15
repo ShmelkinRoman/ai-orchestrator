@@ -227,6 +227,42 @@ def update_task_status(issue_number: int, title: str, status: str):
     _active_tasks[issue_number] = {"title": title, "status": status}
 
 
+async def send_clarification_request(title: str, questions: str, issue_id: int) -> str:
+    """Sends clarification-needed card with 'answered' / 'cancel' buttons.
+    Returns 'answered' or 'cancel'.
+    NOTE: if the bot process restarts while awaiting the button, this coroutine is lost —
+    same pre-existing limitation as send_spec_approval_request.
+    """
+    prefix = f"clar_{issue_id}"
+    q: asyncio.Queue = asyncio.Queue(maxsize=1)
+    _approval_queues[prefix] = q
+
+    msg_text = (
+        f"❓ <b>Нужны уточнения по задаче {_issue_link(issue_id, title)}</b>\n\n"
+        f"Вопросы опубликованы комментарием в GitHub-issue.\n"
+        f"Пожалуйста, <b>ответьте в комментарии к issue</b>, затем нажмите «Я ответил».\n\n"
+        f"<b>Вопросы:</b>\n{_safe_html(questions)}"
+    )
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Я ответил", callback_data=f"{prefix}_answered"),
+        InlineKeyboardButton("Отменить", callback_data=f"{prefix}_cancel"),
+    ]])
+
+    await _app.bot.send_message(
+        chat_id=TELEGRAM_CHAT_ID,
+        text=msg_text,
+        reply_markup=keyboard,
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+    logger.info("Clarification request sent for prefix=%s, waiting...", prefix)
+
+    action = await asyncio.wait_for(q.get(), timeout=86400)
+    logger.info("Clarification action received: prefix=%s action=%s", prefix, action)
+    _approval_queues.pop(prefix, None)
+    return action
+
+
 _ACTION_LABELS = {
     "merge": "Merge ✅",
     "reject": "Отклонено ❌",
@@ -234,6 +270,7 @@ _ACTION_LABELS = {
     "approve": "Принято ✅",
     "clarify": "Уточнение 💬",
     "cancel": "Отменено ❌",
+    "answered": "Возобновляю 🔄",
     "retry": "Повтор 🔄",
     "continue": "Продолжить ▶️",
     "stop": "Остановить ⏹",
