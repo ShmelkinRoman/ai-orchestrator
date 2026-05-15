@@ -56,8 +56,13 @@ _MODEL_MAP = {
     ),
 }
 
-# Fallback for qwen-local when server is down
-_QWEN_FALLBACK = ("openrouter/anthropic/claude-haiku-4.5", _OPENROUTER_BASE, OPENROUTER_API_KEY)
+
+# Fallback for qwen-local when server is down — resolved dynamically from models.yaml
+def _qwen_fallback() -> tuple[str, str, str]:
+    """Return the (model, api_base, api_key) tuple for the qwen fallback model."""
+    alias = MODELS.get("local_developer", {}).get("fallback") or "claude-sonnet-4-6"
+    return _resolve(alias)
+
 
 _TRANSIENT_ERRORS = (
     litellm.BadGatewayError,
@@ -161,6 +166,10 @@ def pick_model(role: str, risk: str = "low",
     if alias is None:
         raise KeyError(f"pick_model: unknown role '{role}' (risk={risk})")
 
+    # Dict form: extract model string
+    if isinstance(alias, dict):
+        alias = alias["model"]
+
     # Qwen disabled → fallback (covers the case where a role points at qwen-local).
     if alias == "qwen-local" and not QWEN_ENABLED:
         local = MODELS.get("local_developer", {})
@@ -169,6 +178,24 @@ def pick_model(role: str, risk: str = "low",
         return fallback
 
     return alias
+
+
+def get_role_params(role: str, risk: str = "low") -> dict:
+    """Return per-role LLM kwargs (temperature, max_tokens, …) from yaml,
+    or {} if the role is in string form. Mirrors the role/risk dispatch in pick_model.
+    Never returns 'model' — that field is stripped."""
+    roles: dict = MODELS.get("roles", {})
+
+    if role in ("architect", "reviewer"):
+        key = f"{role}_high" if risk == "high" else f"{role}_low"
+        entry = roles.get(key)
+    else:
+        entry = roles.get(role)
+
+    if not isinstance(entry, dict):
+        return {}
+
+    return {k: v for k, v in entry.items() if k != "model"}
 
 
 def pick_developer(risk: str, project_confidential: bool | None = None,
@@ -207,14 +234,14 @@ def pick_developer(risk: str, project_confidential: bool | None = None,
 def complete(alias: str, messages: list[dict], temperature: float = 0.1,
              max_tokens: int = 4096, retries: int = 3) -> str:
     if _is_qwen(alias) and _force_haiku:
-        logger.info("Force-haiku active: routing '%s' → haiku fallback", alias)
-        fb_model, fb_base, fb_key = _QWEN_FALLBACK
+        logger.info("Force-haiku active: routing '%s' → qwen-fallback", alias)
+        fb_model, fb_base, fb_key = _qwen_fallback()
         resp = litellm.completion(
             model=fb_model, messages=messages, temperature=temperature,
             max_tokens=max_tokens, api_base=fb_base, api_key=fb_key,
         )
         u = resp.usage
-        _record_cost(f"{alias}(forced-haiku)", fb_model, u.prompt_tokens, u.completion_tokens)
+        _record_cost(f"{alias}(qwen-fallback)", fb_model, u.prompt_tokens, u.completion_tokens)
         return resp.choices[0].message.content.strip()
 
     model, api_base, api_key = _resolve(alias)
@@ -250,14 +277,14 @@ def complete(alias: str, messages: list[dict], temperature: float = 0.1,
 
     # Qwen exhausted — try fallback via OpenRouter
     if _is_qwen(alias):
-        logger.warning("Qwen unreachable after %d attempts, using haiku fallback", retries)
-        fb_model, fb_base, fb_key = _QWEN_FALLBACK
+        logger.warning("Qwen unreachable after %d attempts, using qwen-fallback", retries)
+        fb_model, fb_base, fb_key = _qwen_fallback()
         resp = litellm.completion(
             model=fb_model, messages=messages, temperature=temperature,
             max_tokens=max_tokens, api_base=fb_base, api_key=fb_key,
         )
         u = resp.usage
-        _record_cost(f"{alias}(haiku-fallback)", fb_model, u.prompt_tokens, u.completion_tokens)
+        _record_cost(f"{alias}(qwen-fallback)", fb_model, u.prompt_tokens, u.completion_tokens)
         return resp.choices[0].message.content.strip()
 
     raise last_exc

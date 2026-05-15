@@ -90,6 +90,25 @@ def test_pick_model_unknown_role_raises():
         pick_model("nonexistent_role")
 
 
+def test_get_role_params_strips_model_for_dict_form():
+    from agents.llm import get_role_params
+    params = get_role_params("architect", risk="high")
+    assert "model" not in params
+    assert params.get("temperature") == 0.2
+    assert params.get("max_tokens") == 4096
+
+
+def test_get_role_params_returns_empty_for_string_form():
+    from agents.llm import get_role_params
+    assert get_role_params("intake") == {}
+    assert get_role_params("triage") == {}
+
+
+def test_get_role_params_unknown_role_returns_empty():
+    from agents.llm import get_role_params
+    assert get_role_params("nonexistent_role") == {}
+
+
 def test_pick_developer_qwen_when_low_risk_short_spec(monkeypatch):
     import agents.llm as llm_mod
     monkeypatch.setattr(llm_mod, "is_qwen_enabled", lambda: True)
@@ -195,3 +214,36 @@ def test_cost_log_read_recent(tmp_path):
 def test_version_constant():
     from config.settings import VERSION
     assert VERSION == "0.1.0"
+
+
+def test_validate_models_accepts_string_and_dict_roles():
+    from config.settings import _validate_models
+    import pytest
+
+    base_roles = {
+        "triage": "claude-haiku-4-5",
+        "intake": "claude-haiku-4-5",
+        "architect_low": "claude-sonnet-4-6",
+        "architect_high": "claude-opus-4-7",
+        "developer": "claude-sonnet-4-6",
+        "reviewer_low": "claude-sonnet-4-6",
+        "reviewer_high": "claude-opus-4-7",
+        "docs": "claude-haiku-4-5",
+    }
+    local_dev = {"model": "qwen-local", "fallback": "claude-sonnet-4-6"}
+    cheap_dev = {"model": "deepseek-coder"}
+
+    # All string aliases — must pass
+    _validate_models({"roles": base_roles, "local_developer": local_dev, "cheap_developer": cheap_dev})
+
+    # Dict roles with model key — must pass
+    dict_roles = dict(base_roles)
+    dict_roles["architect_low"] = {"model": "claude-sonnet-4-6", "temperature": 0.2, "max_tokens": 4096}
+    dict_roles["reviewer_high"] = {"model": "claude-opus-4-7", "max_tokens": 2048}
+    _validate_models({"roles": dict_roles, "local_developer": local_dev, "cheap_developer": cheap_dev})
+
+    # Dict role missing 'model' key — must raise
+    bad_roles = dict(base_roles)
+    bad_roles["architect_low"] = {"temperature": 0.2}
+    with pytest.raises(RuntimeError, match="missing 'model' key"):
+        _validate_models({"roles": bad_roles, "local_developer": local_dev, "cheap_developer": cheap_dev})

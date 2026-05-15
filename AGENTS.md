@@ -18,7 +18,7 @@ config/
   models.yaml                  — maps agent names to LLM aliases (qwen-local, openrouter/...)
   litellm.yaml                 — LiteLLM proxy config (not used at runtime, reference only)
 agents/
-  llm.py                       — complete(alias, messages) → str; cost tracking; model routing
+  llm.py                       — complete(alias, messages) → str; pick_model(role, risk) → alias; cost tracking
   intake.py                    — run(issue_body) → dict with title/user_story/acceptance_criteria
   triage.py                    — run(intake) → {risk, needs_clarification, clarification_questions}
   architect.py                 — run(intake, triage, context) → spec string (markdown)
@@ -26,7 +26,7 @@ agents/
   docs.py                      — run(repo_path, changed_files, spec, diff) → updates docs in repo
   context.py                   — gather(repo_path, keywords) → {agents_md, file_snippets, ...}
 runner/
-  aider_runner.py              — run(repo_path, prompt) → {diff, changed_files}; run_tests() → {passed, output}
+  aider_runner.py              — run(repo_path, prompt) → {diff, changed_files}; run_tests() → {passed, output}; pick_developer(risk, project_confidential, spec_lines) → model alias
 gh_client/
   client.py                    — GitHub API: issues, labels, branches, PRs, merge
   project.py                   — GitHub Projects V2 kanban: move_issue(num, node_id, column_name)
@@ -36,7 +36,7 @@ prompts/
   intake.md                    — system prompt for intake agent
   architect.md                 — system prompt for architect agent
   reviewer.md                  — system prompt for reviewer agent
-  docs.md                      — system prompt for docs agent
+  (docs agent inlines its prompt in agents/docs.py — no prompts/docs.md file)
 tests/
   test_pipeline.py             — unit tests for agents (no network calls, no LLM)
 ```
@@ -48,15 +48,28 @@ tests/
 Always use `agents/llm.py`:
 
 ```python
-from agents.llm import complete
-from config.settings import MODELS
+from agents.llm import complete, pick_model, get_role_params
 
-text = complete(MODELS["intake_agent"], messages, temperature=0.1, max_tokens=4096)
+model = pick_model("architect", risk=risk)
+params = get_role_params("architect", risk=risk)   # {} for string-form roles
+text = complete(model, messages, **params)
 ```
 
-`MODELS` is a dict loaded from `config/models.yaml`. Current keys:
-`intake_agent`, `triage_agent`, `context_agent`, `architect_agent`,
-`reviewer_high`, `reviewer_medium`, `reviewer_low`, `docs_agent`
+`pick_model(role, risk="low")` resolves a role name to a concrete model alias using
+`config/models.yaml`. Available role keys:
+`triage`, `intake`, `architect_low`, `architect_high`, `developer`,
+`reviewer_low`, `reviewer_high`, `docs`
+
+For `architect` and `reviewer`, you can pass the base name and let `pick_model` branch on
+`risk`: `pick_model("reviewer", risk="high")` → `reviewer_high` alias.
+
+`get_role_params(role, risk)` returns per-role LLM kwargs (`temperature`, `max_tokens`, …) from
+yaml when the role entry is in dict form, or `{}` when it is a plain alias string. Splatting it
+into `complete()` lets callers stay free of magic numbers.
+
+For selecting the code-execution backend (Aider + model), use `pick_developer(risk,
+project_confidential, spec_lines)` — canonical definition in `agents/llm.py`, re-exported from
+`runner/aider_runner.py`. Separate from the LLM agents above.
 
 Never call `litellm.completion()` directly — cost tracking lives in `complete()`.
 
@@ -64,13 +77,15 @@ Never call `litellm.completion()` directly — cost tracking lives in `complete(
 
 ## How prompts work
 
-Each agent loads its system prompt from `prompts/<name>.md` at import time:
+Most agents load their system prompt from `prompts/<name>.md` at import time:
 
 ```python
 _PROMPT = (Path(__file__).parent.parent / "prompts/architect.md").read_text()
 ```
 
-Then passes it as `{"role": "system", "content": _PROMPT}` in the messages list.
+Then pass it as `{"role": "system", "content": _PROMPT}` in the messages list.
+
+Exception: `agents/docs.py` builds its prompt inline (no external file).
 
 ---
 
@@ -82,7 +97,7 @@ All env vars are in `.env`. `config/settings.py` loads them with `python-dotenv`
 from config.settings import GITHUB_REPO, GITHUB_TOKEN, MODELS
 ```
 
-To add a new model alias: add a line to `config/models.yaml` and a price entry to `_COST_PER_1M` in `agents/llm.py`.
+To add a new model alias: add a line to `config/models.yaml` and a price entry to `_COST_PER_1M` in `agents/llm.py`. A `roles.<name>:` entry may be either a plain alias string (`claude-haiku-4-5`) or a dict with per-role overrides (`{model: …, temperature: …, max_tokens: …}`) — see `architect_*` / `reviewer_*` for examples.
 
 ---
 
@@ -121,7 +136,7 @@ Tests must not make network calls, must not import `.env` values that aren't set
 ## Adding a new agent
 
 1. Create `agents/<name>.py` with a `run(...)` function
-2. Add `<name>_agent: <model-alias>` to `config/models.yaml`
+2. Add `<name>: <model-alias>` under the `roles:` key in `config/models.yaml`
 3. Add a prompt file `prompts/<name>.md` if needed
 4. Add unit tests in `tests/test_pipeline.py` that test parsing/logic without LLM calls
 5. Wire into `main.py` → `process_issue()`
@@ -136,6 +151,8 @@ Ready to Merge → Released → Docs Updated
 
 `project.move_issue(num, node_id, "Column Name")` — exact string must match.
 
+Source of truth: `gh_client/project.py` (`COLUMNS` list). Update both if columns change.
+
 ---
 
 ## Risk classification (triage.py)
@@ -144,4 +161,8 @@ Ready to Merge → Released → Docs Updated
 - **medium**: api, endpoint, backend, service, query, route — or > 3 changed files
 - **low**: everything else
 
-Reviewer model is chosen by risk: high → Sonnet, medium → GPT-4o-mini, low → Qwen.
+Model is chosen by risk for both architect and reviewer:
+- **high** → `*_high` role key → `claude-opus-4-7`
+- **medium / low** → `*_low` role key → `claude-sonnet-4-6`
+
+Medium collapses to `_low` (verified in `agents/llm.py:pick_model`: only `risk == "high"` selects `_high`).
