@@ -4,7 +4,6 @@ import shutil
 import subprocess
 from pathlib import Path
 from config.settings import QWEN_API_BASE, OPENROUTER_API_KEY
-from agents.llm import pick_developer  # S4: unified in agents/llm
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,6 @@ _DEVELOPER_PROFILES = {
         "env": {"OPENAI_API_KEY": OPENROUTER_API_KEY, "OPENROUTER_API_KEY": OPENROUTER_API_KEY},
     },
 }
-
 
 
 def _profile(model_alias: str) -> dict:

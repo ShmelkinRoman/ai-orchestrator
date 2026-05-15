@@ -8,16 +8,16 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).parents[1] / ".env")
+load_dotenv(Path(__file__).parents[1] / ".env")  # noqa: E402 must run before app imports
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from fastapi import FastAPI, Request  # noqa: E402
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+from fastapi.templating import Jinja2Templates  # noqa: E402
 
-from web.auth import handle_login, handle_logout, is_session_valid
-from web.routes import dashboard, issues, logs
-from web.routes import settings as settings_router
+from web.auth import handle_login, handle_logout, is_session_valid  # noqa: E402
+from web.routes import dashboard, issues, logs  # noqa: E402
+from web.routes import settings as settings_router  # noqa: E402
 
 app = FastAPI(title="AI Orchestrator", docs_url=None, redoc_url=None)
 
